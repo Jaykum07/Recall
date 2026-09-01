@@ -1,0 +1,16 @@
+{
+  "name": "recall",
+  "version": "1.0.0",
+  "description": "A DSA learning and revision tracking platform for building consistent problem-solving habits.",
+  "author": "Jay Kumrawat",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "client": "npm run dev --prefix client",
+    "server": "npm run dev --prefix server",
+    "dev": "concurrently \"npm run client\" \"npm run server\""
+  },
+  "devDependencies": {
+    "concurrently": "^10.0.5"
+  }
+}
