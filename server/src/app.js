@@ -1,4 +1,6 @@
 import express from "express";
+import healthRouter from "./routes/health.routes.js";
+import problemRouter from "./routes/problem.routes.js";
 
 const app = express();
 
@@ -10,17 +12,12 @@ const logger = (req, res, next) => {
 app.use(express.json());
 
 app.use(logger);
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    message: "Recall API is running",
-  });
-});
+app.use("/api", healthRouter);
+app.use("/api/problems", problemRouter);
 
 app.post("/api/test", (req, res) => {
-    console.log(req.body);
-    res.json(req.body);
-})
+  console.log(req.body);
+  res.json(req.body);
+});
 
 export default app;
