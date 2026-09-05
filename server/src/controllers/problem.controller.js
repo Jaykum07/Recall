@@ -1,13 +1,16 @@
 import createProblemService from "../services/problem.service.js";
 
-export const createProblemController = async (req, res) => {
-  const problem = await createProblemService(req.body);
-
-  res.status(201).json({
-    success: true,
-    message: "problem created",
-    data: problem,
-  });
+export const createProblemController = async (req, res, next) => {
+  try {
+    const problem = await createProblemService(req.body);
+    res.status(201).json({
+      success: true,
+      message: "problem created",
+      data: problem,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 export const getProblemsController = (req, res) => {

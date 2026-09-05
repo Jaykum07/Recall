@@ -1,6 +1,7 @@
 import express from "express";
 import healthRouter from "./routes/health.routes.js";
 import problemRouter from "./routes/problem.routes.js";
+import { errorMiddleware } from "./middleware/error.middleware.js";
 
 const app = express();
 
@@ -19,5 +20,7 @@ app.post("/api/test", (req, res) => {
   console.log(req.body);
   res.json(req.body);
 });
+
+app.use(errorMiddleware);
 
 export default app;
