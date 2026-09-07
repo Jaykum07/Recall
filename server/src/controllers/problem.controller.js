@@ -1,5 +1,6 @@
 import {
   createProblemService,
+  deleteProblemService,
   getProblemService,
   getProblemsService,
   updateProblemService,
@@ -57,9 +58,16 @@ export const updateProblemController = async (req, res, next) => {
   }
 };
 
-export const deleteProblemController = (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: "problem deleted",
-  });
+export const deleteProblemController = async (req, res, next) => {
+  try {
+    const data = await deleteProblemService(req.params.id);
+
+    res.status(200).json({
+      success: true,  
+      message: "problem deleted",
+      data,
+    });
+  } catch (err) {
+    next(err);
+  }
 };

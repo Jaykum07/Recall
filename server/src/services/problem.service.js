@@ -66,11 +66,19 @@ export const updateProblemService = async (id, data) => {
         data.userLearningInfo.confidence;
     }
 
+    if(Object.keys(updatedData).length === 0){
+      const error = new Error("No data provided for update");
+      error.statusCode = 400;
+
+      throw error;
+    }
+
     const problemData = await Problem.findByIdAndUpdate(
       id,
       { $set: updatedData },
       {
         new: true,
+        runValidators: true
       }
     );
 
@@ -86,3 +94,28 @@ export const updateProblemService = async (id, data) => {
     throw err;
   }
 };
+
+export const deleteProblemService = async (id) => {
+  try{
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      const error = new Error("Bad Request");
+      error.statusCode = 400;
+
+      throw error;
+    }
+
+    const data = await Problem.findByIdAndDelete(id);
+
+    if(!data){
+      const error = new Error("Problem not found.");
+      error.statusCode = 404;
+
+      throw error;
+    }
+
+    return data;
+
+  }catch(err){
+    throw err;
+  }
+}
