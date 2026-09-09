@@ -15,7 +15,8 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "mongoose": "^9.9.4",
-    "node-dns": "^0.1.0"
+    "node-dns": "^0.1.0",
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

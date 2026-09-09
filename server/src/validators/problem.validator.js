@@ -1,31 +1,26 @@
+import { z } from "zod";
+
+const updateProblemSchema = z.object({
+  userLearningInfo: z
+    .object({
+      confidence: z.number().min(0).max(5).optional(),
+      whatILearned: z.string().optional(),
+      whatIStruggledWith: z.string().optional(),
+      mistake: z.string().optional(),
+    })
+    .strict()
+    .refine((data) => Object.keys(data).length > 0),
+});
+
 export const validateUpdateProblem = (req, res, next) => {
-    const data = req.body;
-  
-    if (Object.keys(data).length === 0) {
-      const err = new Error("Provide update data");
-      err.statusCode = 400;
-      return next(err);
-    }
-  
-    if (data?.userLearningInfo?.confidence === undefined) {
-      const err = new Error("Confidence is required");
-      err.statusCode = 400;
-      return next(err);
-    }
-  
-    const { confidence } = data.userLearningInfo;
-  
-    if (typeof confidence !== "number") {
-      const err = new Error("Confidence must be a number");
-      err.statusCode = 400;
-      return next(err);
-    }
-  
-    if (confidence < 0 || confidence > 5) {
-      const err = new Error("Confidence must be between 0 and 5");
-      err.statusCode = 400;
-      return next(err);
-    }
-  
-    next();
+
+  const result = updateProblemSchema.safeParse(req.body);
+
+  if (!result.success) {
+    const err = new Error("Invalid data");
+    err.statusCode = 400;
+    return next(err);
+  }
+
+  next();
 };
