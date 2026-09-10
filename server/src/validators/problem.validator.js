@@ -17,7 +17,13 @@ export const validateUpdateProblem = (req, res, next) => {
   const result = updateProblemSchema.safeParse(req.body);
 
   if (!result.success) {
-    const err = new Error("Invalid data");
+    const errors = result.error.issues.map((issue) =>({
+      field: issue.path.join("."),
+      message: issue.message,
+    }));
+
+    const err = new Error("Validation failed");
+    err.errors = errors;
     err.statusCode = 400;
     return next(err);
   }
