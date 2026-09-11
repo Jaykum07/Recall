@@ -21,7 +21,7 @@ export const createProblemController = async (req, res, next) => {
 
 export const getProblemsController = async (req, res, next) => {
   try {
-    const data = await getProblemsService();
+    const data = await getProblemsService(req.validatedQuery);
     res.status(200).json({
       success: true,
       message: "problems fetched",
@@ -63,7 +63,7 @@ export const deleteProblemController = async (req, res, next) => {
     const data = await deleteProblemService(req.params.id);
 
     res.status(200).json({
-      success: true,  
+      success: true,
       message: "problem deleted",
       data,
     });

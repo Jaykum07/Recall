@@ -18,9 +18,23 @@ export const createProblemService = async (problemData) => {
   }
 };
 
-export const getProblemsService = async () => {
+export const getProblemsService = async ({ difficulty, tags, platform }) => {
   try {
-    const problemsData = await Problem.find();
+    const filter = {};
+    if (difficulty !== undefined) {
+      filter["problemInfo.difficulty"] = difficulty;
+    }
+    if (tags !== undefined) {
+      const tagList = tags.split(",");
+      filter["problemInfo.tags"] = {
+        $in: tagList,
+      };
+    }
+    if (platform !== undefined) {
+      filter["problemInfo.platform"] = platform;
+    }
+
+    const problemsData = await Problem.find(filter);
     return problemsData;
   } catch (err) {
     throw err;
@@ -66,7 +80,7 @@ export const updateProblemService = async (id, data) => {
         data.userLearningInfo.confidence;
     }
 
-    if(Object.keys(updatedData).length === 0){
+    if (Object.keys(updatedData).length === 0) {
       const error = new Error("No data provided for update");
       error.statusCode = 400;
 
@@ -78,7 +92,7 @@ export const updateProblemService = async (id, data) => {
       { $set: updatedData },
       {
         new: true,
-        runValidators: true
+        runValidators: true,
       }
     );
 
@@ -96,7 +110,7 @@ export const updateProblemService = async (id, data) => {
 };
 
 export const deleteProblemService = async (id) => {
-  try{
+  try {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       const error = new Error("Bad Request");
       error.statusCode = 400;
@@ -106,7 +120,7 @@ export const deleteProblemService = async (id) => {
 
     const data = await Problem.findByIdAndDelete(id);
 
-    if(!data){
+    if (!data) {
       const error = new Error("Problem not found.");
       error.statusCode = 404;
 
@@ -114,8 +128,7 @@ export const deleteProblemService = async (id) => {
     }
 
     return data;
-
-  }catch(err){
+  } catch (err) {
     throw err;
   }
-}
+};

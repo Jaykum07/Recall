@@ -6,12 +6,15 @@ import {
   getProblemsController,
   updateProblemController,
 } from "../controllers/problem.controller.js";
-import { validateUpdateProblem } from "../validators/problem.validator.js";
+import {
+  validateUpdateProblem,
+  validateProblemFilters,
+} from "../validators/problem.validator.js";
 
 const router = express.Router();
 
 router.post("/", createProblemController);
-router.get("/", getProblemsController);
+router.get("/", validateProblemFilters, getProblemsController);
 router.get("/:id", getProblemController);
 router.patch("/:id", validateUpdateProblem, updateProblemController);
 router.delete("/:id", deleteProblemController);
