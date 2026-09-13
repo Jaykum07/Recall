@@ -18,7 +18,14 @@ export const createProblemService = async (problemData) => {
   }
 };
 
-export const getProblemsService = async ({ difficulty, tags, platform }) => {
+export const getProblemsService = async ({
+  difficulty,
+  tags,
+  platform,
+  search,
+  page = 1,
+  limit = 10,
+}) => {
   try {
     const filter = {};
     if (difficulty !== undefined) {
@@ -34,8 +41,33 @@ export const getProblemsService = async ({ difficulty, tags, platform }) => {
       filter["problemInfo.platform"] = platform;
     }
 
-    const problemsData = await Problem.find(filter);
-    return problemsData;
+    if (search !== undefined && search.trim() !== "") {
+      filter["problemInfo.problemName"] = {
+        $regex: search.trim(),
+        $options: "i",
+      };
+    }
+
+    const skip = (page - 1) * limit;
+
+    const [problems, totalProblems] = await Promise.all([
+      Problem.find(filter).skip(skip).limit(limit),
+      Problem.countDocuments(filter)
+    ]);
+    
+    const totalPages = Math.ceil(totalProblems / limit);
+
+    return {
+      problems,
+      pagination: {
+        page,
+        limit,
+        totalProblems,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: 1<page,
+      },
+    };
   } catch (err) {
     throw err;
   }
