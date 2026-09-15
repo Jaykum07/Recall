@@ -22,8 +22,19 @@ const problemFilterSchema = z
     search: z.string().optional(),
     page: z.coerce.number().int().min(1).optional(),
     limit: z.coerce.number().int().min(1).max(100).optional(),
+    sortBy: z
+      .enum(["difficulty", "confidence", "firstSolvedAt", "lastSolvedAt"])
+      .optional(),
+    order: z.enum(["asc", "desc"]).default("asc"),
   })
-  .strict();
+  .strict()
+  .refine(({ sortBy, order }) => {
+    if(order !== undefined){
+      if(sortBy === undefined) return false;
+    }
+
+    return true;
+  });
 
 export const validateUpdateProblem = (req, res, next) => {
   const result = updateProblemSchema.safeParse(req.body);

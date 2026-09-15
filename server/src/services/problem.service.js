@@ -25,6 +25,8 @@ export const getProblemsService = async ({
   search,
   page = 1,
   limit = 10,
+  sortBy,
+  order
 }) => {
   try {
     const filter = {};
@@ -49,25 +51,100 @@ export const getProblemsService = async ({
     }
 
     const skip = (page - 1) * limit;
-
-    const [problems, totalProblems] = await Promise.all([
-      Problem.find(filter).skip(skip).limit(limit),
-      Problem.countDocuments(filter)
-    ]);
+    const sortOrder = order === "desc" ? -1 : 1;
     
-    const totalPages = Math.ceil(totalProblems / limit);
+    const sortOptions = {};
+    if(sortBy === "difficulty"){
+      const pipline = [
+        { $match: filter },
+        {
+          $addFields: {
+            difficultyRank: {
+              $indexOfArray: [
+                ["easy", "medium", "hard"],
+                "$problemInfo.difficulty",
+              ],
+            },
+          },
+        },
+        {
+          $sort: {
+            difficultyRank: sortOrder,
+          },
+        },
+        {
+          $skip: skip,
+        },
+        { $limit: limit },
+        {
+          $project: {
+            difficultyRank: 0,
+          },
+        },
+      ];
+  
+      const [problems, totalProblems] = await Promise.all([
+        Problem.aggregate(pipline),
+        Problem.countDocuments(filter),
+      ]);
 
-    return {
-      problems,
-      pagination: {
-        page,
-        limit,
-        totalProblems,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPreviousPage: 1<page,
-      },
-    };
+      const totalPages = Math.ceil(totalProblems / limit);
+
+      return {
+        problems,
+        pagination: {
+          page,
+          limit,
+          totalProblems,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: 1 < page,
+        },
+      };
+
+
+    }
+    else if (sortBy !== undefined) {
+      sortOptions[`userLearningInfo.${sortBy}`] = sortOrder;
+      const [problems, totalProblems] = await Promise.all([
+        Problem.find(filter).skip(skip).limit(limit).sort(sortOptions),
+        Problem.countDocuments(filter),
+      ]);
+  
+      const totalPages = Math.ceil(totalProblems / limit);
+  
+      return {
+        problems,
+        pagination: {
+          page,
+          limit,
+          totalProblems,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage:  page > 1,
+        },
+      };
+    }else {
+      const [problems, totalProblems] = await Promise.all([
+        Problem.find(filter).skip(skip).limit(limit),
+        Problem.countDocuments(filter),
+      ]);
+    
+      const totalPages = Math.ceil(totalProblems / limit);
+    
+      return {
+        problems,
+        pagination: {
+          page,
+          limit,
+          totalProblems,
+          totalPages,
+          hasNextPage: page < totalPages,
+          hasPreviousPage: page > 1,
+        },
+      };
+    }
+
   } catch (err) {
     throw err;
   }
