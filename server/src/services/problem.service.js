@@ -26,9 +26,11 @@ export const getProblemsService = async ({
   page = 1,
   limit = 10,
   sortBy,
-  order
+  order,
 }) => {
   try {
+    const pipeline = [];
+
     const filter = {};
     if (difficulty !== undefined) {
       filter["problemInfo.difficulty"] = difficulty;
@@ -50,101 +52,59 @@ export const getProblemsService = async ({
       };
     }
 
+    pipeline.push({ $match: filter });
+
     const skip = (page - 1) * limit;
     const sortOrder = order === "desc" ? -1 : 1;
-    
-    const sortOptions = {};
-    if(sortBy === "difficulty"){
-      const pipline = [
-        { $match: filter },
-        {
-          $addFields: {
-            difficultyRank: {
-              $indexOfArray: [
-                ["easy", "medium", "hard"],
-                "$problemInfo.difficulty",
-              ],
-            },
-          },
-        },
-        {
-          $sort: {
-            difficultyRank: sortOrder,
-          },
-        },
-        {
-          $skip: skip,
-        },
-        { $limit: limit },
-        {
-          $project: {
-            difficultyRank: 0,
-          },
-        },
-      ];
-  
-      const [problems, totalProblems] = await Promise.all([
-        Problem.aggregate(pipline),
-        Problem.countDocuments(filter),
-      ]);
 
-      const totalPages = Math.ceil(totalProblems / limit);
-
-      return {
-        problems,
-        pagination: {
-          page,
-          limit,
-          totalProblems,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPreviousPage: 1 < page,
+    if (sortBy === "difficulty") {
+      const customSorting = {
+        difficultyRank: {
+          $indexOfArray: [
+            ["easy", "medium", "hard"],
+            "$problemInfo.difficulty",
+          ],
         },
       };
-
-
-    }
-    else if (sortBy !== undefined) {
+      pipeline.push({
+        $addFields: customSorting,
+      });
+      pipeline.push({ $sort: { difficultyRank: sortOrder } });
+    } else if (sortBy !== undefined) {
+      const sortOptions = {};
       sortOptions[`userLearningInfo.${sortBy}`] = sortOrder;
-      const [problems, totalProblems] = await Promise.all([
-        Problem.find(filter).skip(skip).limit(limit).sort(sortOptions),
-        Problem.countDocuments(filter),
-      ]);
-  
-      const totalPages = Math.ceil(totalProblems / limit);
-  
-      return {
-        problems,
-        pagination: {
-          page,
-          limit,
-          totalProblems,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPreviousPage:  page > 1,
-        },
-      };
-    }else {
-      const [problems, totalProblems] = await Promise.all([
-        Problem.find(filter).skip(skip).limit(limit),
-        Problem.countDocuments(filter),
-      ]);
-    
-      const totalPages = Math.ceil(totalProblems / limit);
-    
-      return {
-        problems,
-        pagination: {
-          page,
-          limit,
-          totalProblems,
-          totalPages,
-          hasNextPage: page < totalPages,
-          hasPreviousPage: page > 1,
-        },
-      };
+      pipeline.push({ $sort: sortOptions });
     }
 
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    if (sortBy === "difficulty") {
+      pipeline.push({
+        $project: {
+          difficultyRank: 0,
+        },
+      });
+    }
+
+    const [problems, totalProblems] = await Promise.all([
+      Problem.aggregate(pipeline),
+      Problem.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(totalProblems / limit);
+
+    return {
+      problems,
+      pagination: {
+        page,
+        limit,
+        totalProblems,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPreviousPage: page > 1,
+      },
+    };
   } catch (err) {
     throw err;
   }

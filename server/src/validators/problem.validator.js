@@ -25,15 +25,17 @@ const problemFilterSchema = z
     sortBy: z
       .enum(["difficulty", "confidence", "firstSolvedAt", "lastSolvedAt"])
       .optional(),
-    order: z.enum(["asc", "desc"]).default("asc"),
+    order: z.enum(["asc", "desc"]).optional(),
   })
   .strict()
-  .refine(({ sortBy, order }) => {
-    if(order !== undefined){
-      if(sortBy === undefined) return false;
+  .superRefine((data, ctx) => {
+    if (data.order !== undefined && data.sortBy === undefined) {
+        ctx.addIssue({
+          code: "custom",
+          path: ["order"],
+          message: "order requires sortBy",
+        });
     }
-
-    return true;
   });
 
 export const validateUpdateProblem = (req, res, next) => {
