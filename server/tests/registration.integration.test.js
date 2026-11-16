@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { once } from "node:events";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -8,6 +9,7 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import request from "supertest";
 import app from "../src/app.js";
@@ -18,6 +20,9 @@ test("registration persists safely and enforces unique email in isolated MongoDB
   skip: !process.env.MONGOD_BINARY && "Set MONGOD_BINARY to enable isolated persistence verification",
   timeout: 60000,
 }, async (t) => {
+  process.env.JWT_SECRET = randomBytes(32).toString("hex");
+  process.env.JWT_ISSUER = "recall-test-api";
+  process.env.JWT_AUDIENCE = "recall-test-client";
   const temporaryRoot = path.resolve(os.tmpdir());
   const dataDirectory = await mkdtemp(path.join(temporaryRoot, "recall-registration-"));
   let mongod;
@@ -87,7 +92,12 @@ test("registration persists safely and enforces unique email in isolated MongoDB
 
   const login = await request(app).post("/api/auth/login").send({ email: input.email, password: input.password });
   assert.equal(login.status, 200);
-  assert.deepEqual(login.body.data, { user: { id: accountId, name: "Jay", email: "jay@example.com" } });
+  assert.deepEqual(login.body.data.user, { id: accountId, name: "Jay", email: "jay@example.com" });
+  const claims = jwt.verify(login.body.data.accessToken, Buffer.from(process.env.JWT_SECRET, "hex"), {
+    algorithms: ["HS256"], issuer: process.env.JWT_ISSUER, audience: process.env.JWT_AUDIENCE,
+  });
+  assert.equal(claims.sub, accountId);
+  assert.equal(claims.exp - claims.iat, 900);
   const wrongPassword = await request(app).post("/api/auth/login").send({ email: input.email, password: "incorrect-password" });
   const unknownEmail = await request(app).post("/api/auth/login").send({ email: "missing@example.com", password: input.password });
   assert.equal(wrongPassword.status, 401);

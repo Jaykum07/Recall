@@ -2,8 +2,8 @@
 
 Local base URL: `http://localhost:5000/api` when `PORT=5000`.
 
-Registration and login credential verification are implemented and tested.
-JWTs and user ownership are not implemented yet. No endpoint requires a token.
+Registration, login, and JWT generation are implemented and tested.
+JWT verification middleware and user ownership are pending. No endpoint requires a token.
 Problem database operations still need broader testing; the examples describe
 what the current code accepts and returns.
 
@@ -99,15 +99,40 @@ Response: **200 OK**
       "id": "<user-id>",
       "name": "Jay",
       "email": "jay@example.com"
-    }
+    },
+    "accessToken": "<signed-jwt>"
   }
 }
 ```
 
-Only ID, name, and email are returned. The service explicitly selects the hidden
+The user object contains only ID, name, and email. The service explicitly selects the hidden
 password hash for `bcrypt.compare()`; it never includes the hash in the response.
-This stage only verifies credentials: it issues no JWT, cookie, or session and
-does not grant access to protected routes.
+After password verification, the service issues an HS256 access token with a
+15-minute expiry. The login response includes `data.accessToken` alongside
+`data.user`. No cookie or server session is created. Token verification middleware
+is pending, so this stage does not protect problem routes.
+
+The payload contains only `sub` (the user's MongoDB ID), `iss`, `aud`, `iat`, and
+`exp`. Name, email, passwords, hashes, and the signing secret are excluded. JWTs
+are signed, not encrypted; treat the access token as a credential and do not log
+or share it. The algorithm, issuer, audience, and expiry are set using the
+[jsonwebtoken signing options](https://github.com/auth0/node-jsonwebtoken#jwtsignpayload-secretorprivatekey-options-callback).
+
+JWT setup in `server/.env`:
+
+```dotenv
+JWT_SECRET=<hex-encoded-secret-generated-locally>
+JWT_ISSUER=recall-api
+JWT_AUDIENCE=recall-client
+```
+
+Generate `JWT_SECRET` from at least 32 cryptographically random bytes, encoded as
+hex (at least 64 characters). See the [server README](../server/README.md) for the
+local generation command. Missing, malformed, short, or single-byte repeated
+secrets are rejected; issuer and audience must be nonempty, at most 256 characters,
+and contain no whitespace. No fallback secret is used. Configuration is validated
+after successful password verification; configuration or signing failures return
+500 with `Internal Server Error` and `errors: null`, without a token.
 
 Unknown emails and incorrect passwords both return **401 Unauthorized**:
 
@@ -371,7 +396,7 @@ reach 429 with a Retry-After header. Never put passwords in URLs or logs.
 Request logs omit query strings. Use HTTPS for deployment.
 
 The [server README](../server/README.md) explains automated tests. The last
-Checkpoint 2, Stage 1 run on November 16, 2026 passed all 17 tests with none skipped,
+Checkpoint 2, Stage 2 run on November 16, 2026 passed all 22 tests with none skipped,
 including isolated registration/login verification and query-string logging protection.
-JWTs and ownership are pending. Ownerless records have not been changed;
+JWT verification middleware and ownership are pending. Ownerless records have not been changed;
 there is no automatic assignment or public claim endpoint.

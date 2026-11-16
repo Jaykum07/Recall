@@ -13,8 +13,8 @@ to revisit problems, remember mistakes, and plan revisions.
 | Feature | Current status |
 | --- | --- |
 | User registration | Backend completed and tested |
-| Login API | Backend completed and tested; no token or session yet |
-| JWT authentication | Planned next |
+| Login API | Returns a signed access token and safe user details |
+| JWT authentication | Token generation complete; verification middleware pending |
 | Private problems for each user | Not implemented yet |
 | Problem management | Backend APIs exist; editing is incomplete |
 | Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
@@ -62,10 +62,19 @@ Copy `server/.env.example` to `server/.env`. Set your development database URL:
 ```dotenv
 PORT=5000
 MONGO_URI=mongodb://127.0.0.1:27017/recall_dev
+JWT_SECRET=<hex-encoded-secret-generated-locally>
+JWT_ISSUER=recall-api
+JWT_AUDIENCE=recall-client
 ```
 
 This example uses local MongoDB. Replace the URL if you use another development
 database. Keep `.env` and any real credentials out of Git.
+
+Login requires a JWT secret made from at least 32 cryptographically random bytes,
+encoded as hex (64 or more hex characters), plus a nonempty issuer and audience.
+Generate it locally using the instructions in the [server README](server/README.md).
+The placeholder above is intentionally invalid. Tokens use HS256 and expire in
+15 minutes. Missing or invalid JWT settings cause login to return a generic 500.
 
 ## Run the project
 
@@ -88,13 +97,13 @@ MongoDB connection before it starts listening.
 
 ## Current development status
 
-Recall V1 is on Day 1, Checkpoint 2, Stage 1. Registration and login are tested,
+Recall V1 is on Day 1, Checkpoint 2, Stage 2. Registration and login are tested,
 including registering and logging in against a separate test database.
-JWT authentication and problem ownership come next.
+Login now issues JWTs. Token verification middleware and problem ownership come next.
 Existing problems without an owner have not been changed.
 
-The Checkpoint 2, Stage 1 test run on November 16, 2026 passed all 17 tests with
-isolated MongoDB enabled, including safe login responses and credential failures.
+The Checkpoint 2, Stage 2 test run on November 16, 2026 passed all 22 tests with
+isolated MongoDB enabled, including JWT signatures, claims, expiry, and safe failures.
 See the [server README](server/README.md) to run tests and the
 [API reference](docs/api.md) for requests and responses.
 

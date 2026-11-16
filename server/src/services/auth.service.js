@@ -1,5 +1,6 @@
 import bcrypt from "bcrypt";
 import User from "../models/user.model.js";
+import { generateAccessToken } from "./token.service.js";
 
 // Use a real bcrypt comparison even for unknown users to reduce timing differences.
 const dummyPasswordHash = bcrypt.hash("login-timing-placeholder", 12);
@@ -14,7 +15,9 @@ export const loginUserService = async ({ email, password }) => {
     throw error;
   }
 
-  return { id: user._id.toString(), name: user.name, email: user.email };
+  const safeUser = { id: user._id.toString(), name: user.name, email: user.email };
+  const accessToken = generateAccessToken(safeUser.id);
+  return { user: safeUser, accessToken };
 };
 
 export const registerUserService = async ({ name, email, password }) => {
