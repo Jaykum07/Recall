@@ -1,8 +1,8 @@
 # Recall Backend
 
-This is the backend for Recall. It currently handles user registration and has
-APIs for saving and listing DSA problems. Login and user ownership are not added
-yet, so problem APIs are still public.
+This is the backend for Recall. It handles user registration, login credential
+verification, and APIs for saving and listing DSA problems. Login does not issue
+a JWT or create a session yet. Problem APIs are still public pending ownership.
 
 ## Technologies used
 
@@ -18,14 +18,14 @@ server/
   src/
     config/        Database connection
     controllers/   Request and response handling
-    middleware/    Error handling and registration limits
+    middleware/    Error handling and authentication request limits
     models/        User and Problem schemas
     routes/        API endpoints
-    services/      Registration and problem operations
+    services/      Registration, login, and problem operations
     validators/    Input checks
     app.js         Express app setup
     server.js      Database connection and server startup
-  tests/           Registration tests
+  tests/           Registration and login tests
 ```
 
 ## Install and configure
@@ -51,6 +51,7 @@ real credentials or `.env`. JWT settings are not needed at this checkpoint.
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
 | POST | `/api/auth/register` | Create an account |
+| POST | `/api/auth/login` | Verify credentials and return safe user details |
 | GET | `/api/health` | Check that the API responds |
 | POST | `/api/problems` | Add a problem |
 | GET | `/api/problems` | List, search, filter, sort, and paginate problems |
@@ -58,7 +59,7 @@ real credentials or `.env`. JWT settings are not needed at this checkpoint.
 | PATCH | `/api/problems/:id` | Update confidence only |
 | DELETE | `/api/problems/:id` | Delete a problem |
 
-All current endpoints are public. Registration is tested; problem database
+No endpoint requires a token yet. Registration and login are tested; problem database
 operations still need broader testing. See the [API reference](../docs/api.md)
 for request bodies, responses, and known limitations.
 
@@ -86,7 +87,7 @@ From the project root:
 npm test --prefix server
 ```
 
-This runs 9 tests and skips the database test unless `MONGOD_BINARY` is set.
+This runs 16 tests and skips the database test unless `MONGOD_BINARY` is set.
 To include it, point that variable to your local MongoDB executable. For example,
 in PowerShell (replace the path with yours):
 
@@ -100,8 +101,15 @@ own MongoDB process on a random local port with a temporary data folder. It neve
 uses the app's database URL. It stops that process and removes its test folder
 afterward.
 
-The Checkpoint 1 run on November 16, 2026 passed all 10 tests with none skipped.
+The Checkpoint 2, Stage 1 run on November 16, 2026 passed all 17 tests with none skipped.
 They cover registration, password hashing, validation, duplicate emails, safe
 errors, request limits, and exclusion of query strings from request logs. The
 database test also checks saved accounts after reconnecting and confirms an
-existing ownerless problem fixture stays unchanged.
+existing ownerless problem fixture stays unchanged. Login tests cover successful
+verification, incorrect passwords, unknown emails, invalid input, safe response
+fields, hidden-hash retrieval, generic errors, and a separate login rate limit.
+
+Login normalizes the email, retrieves the account's hidden password hash only
+for verification, and checks the password with `bcrypt.compare()`. Success
+returns only `id`, `name`, and `email`. Unknown emails and wrong passwords both
+return 401 with `Invalid email or password`. No password or hash is returned.

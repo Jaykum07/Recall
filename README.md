@@ -13,7 +13,8 @@ to revisit problems, remember mistakes, and plan revisions.
 | Feature | Current status |
 | --- | --- |
 | User registration | Backend completed and tested |
-| Login and JWT authentication | Planned next |
+| Login API | Backend completed and tested; no token or session yet |
+| JWT authentication | Planned next |
 | Private problems for each user | Not implemented yet |
 | Problem management | Backend APIs exist; editing is incomplete |
 | Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
@@ -21,7 +22,7 @@ to revisit problems, remember mistakes, and plan revisions.
 | Revision tracking, goals, streaks, and dashboard | Planned |
 | Frontend | Basic React page only |
 
-Registration works through the API. There is no registration screen yet.
+Registration and login work through the API. There is no authentication UI yet.
 Problem APIs are still public until user ownership is added.
 
 ## Technologies used
@@ -87,12 +88,13 @@ MongoDB connection before it starts listening.
 
 ## Current development status
 
-Recall V1 is on Day 1, Checkpoint 1. User registration is tested, including saving
-accounts in a separate test database. Login and problem ownership come next.
+Recall V1 is on Day 1, Checkpoint 2, Stage 1. Registration and login are tested,
+including registering and logging in against a separate test database.
+JWT authentication and problem ownership come next.
 Existing problems without an owner have not been changed.
 
-The Checkpoint 1 test run on November 16, 2026 passed all 10 tests with isolated
-MongoDB enabled, including a check that request logs exclude query strings.
+The Checkpoint 2, Stage 1 test run on November 16, 2026 passed all 17 tests with
+isolated MongoDB enabled, including safe login responses and credential failures.
 See the [server README](server/README.md) to run tests and the
 [API reference](docs/api.md) for requests and responses.
 

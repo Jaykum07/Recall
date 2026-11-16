@@ -2,8 +2,8 @@
 
 Local base URL: `http://localhost:5000/api` when `PORT=5000`.
 
-Registration is implemented and tested. Login, JWTs, and user ownership are not
-implemented yet. All endpoints below currently work without authentication.
+Registration and login credential verification are implemented and tested.
+JWTs and user ownership are not implemented yet. No endpoint requires a token.
 Problem database operations still need broader testing; the examples describe
 what the current code accepts and returns.
 
@@ -70,6 +70,65 @@ Example duplicate-email response:
 Registration limits are stored in memory and reset when the server restarts.
 They are not shared between server processes. A reverse-proxy deployment needs
 careful trusted-proxy configuration before relying on client-IP limits.
+
+## Log in
+
+**POST `/api/auth/login`**
+
+Authentication: none. Send `Content-Type: application/json`.
+
+```json
+{
+  "email": "jay@example.com",
+  "password": "example-only-long-password"
+}
+```
+
+Email is trimmed, lowercased, validated, and limited to 254 characters. Password
+uses the registration rules: at least 12 characters and at most 72 UTF-8 bytes;
+it is never trimmed. Extra fields are rejected.
+
+Response: **200 OK**
+
+```json
+{
+  "success": true,
+  "message": "Login successful",
+  "data": {
+    "user": {
+      "id": "<user-id>",
+      "name": "Jay",
+      "email": "jay@example.com"
+    }
+  }
+}
+```
+
+Only ID, name, and email are returned. The service explicitly selects the hidden
+password hash for `bcrypt.compare()`; it never includes the hash in the response.
+This stage only verifies credentials: it issues no JWT, cookie, or session and
+does not grant access to protected routes.
+
+Unknown emails and incorrect passwords both return **401 Unauthorized**:
+
+```json
+{
+  "success": false,
+  "message": "Invalid email or password",
+  "errors": null
+}
+```
+
+| Status | Reason |
+| --- | --- |
+| 400 | Missing or invalid fields, extra fields, or malformed JSON |
+| 401 | Unknown email or incorrect password |
+| 429 | More than 20 login attempts per IP in 15 minutes |
+| 500 | Unexpected server error |
+
+Login has a separate in-memory rate limit from registration, with the same
+restart, multiple-process, and trusted-proxy limitations described above.
+Unknown emails still trigger a bcrypt comparison to reduce timing differences.
 
 ## Check API health
 
@@ -312,7 +371,7 @@ reach 429 with a Retry-After header. Never put passwords in URLs or logs.
 Request logs omit query strings. Use HTTPS for deployment.
 
 The [server README](../server/README.md) explains automated tests. The last
-Checkpoint 1 run on November 16, 2026 passed all 10 tests with none skipped,
-including isolated database verification and query-string logging protection.
-Login, JWTs, and ownership are pending. Ownerless records have not been changed;
+Checkpoint 2, Stage 1 run on November 16, 2026 passed all 17 tests with none skipped,
+including isolated registration/login verification and query-string logging protection.
+JWTs and ownership are pending. Ownerless records have not been changed;
 there is no automatic assignment or public claim endpoint.

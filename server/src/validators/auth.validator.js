@@ -9,8 +9,10 @@ const registrationSchema = z.object({
   ),
 }).strict();
 
-export const validateRegistration = (req, res, next) => {
-  const result = registrationSchema.safeParse(req.body);
+const loginSchema = registrationSchema.pick({ email: true, password: true });
+
+const validateBody = (schema) => (req, res, next) => {
+  const result = schema.safeParse(req.body);
   if (!result.success) {
     const err = new Error("Validation failed");
     err.statusCode = 400;
@@ -24,3 +26,6 @@ export const validateRegistration = (req, res, next) => {
   req.validatedBody = result.data;
   next();
 };
+
+export const validateRegistration = validateBody(registrationSchema);
+export const validateLogin = validateBody(loginSchema);

@@ -85,6 +85,15 @@ test("registration persists safely and enforces unique email in isolated MongoDB
   assert.ok(!Object.hasOwn(stored.toObject(), "password"));
   assert.ok(stored.createdAt instanceof Date && stored.updatedAt instanceof Date);
 
+  const login = await request(app).post("/api/auth/login").send({ email: input.email, password: input.password });
+  assert.equal(login.status, 200);
+  assert.deepEqual(login.body.data, { user: { id: accountId, name: "Jay", email: "jay@example.com" } });
+  const wrongPassword = await request(app).post("/api/auth/login").send({ email: input.email, password: "incorrect-password" });
+  const unknownEmail = await request(app).post("/api/auth/login").send({ email: "missing@example.com", password: input.password });
+  assert.equal(wrongPassword.status, 401);
+  assert.equal(unknownEmail.status, 401);
+  assert.deepEqual(wrongPassword.body, unknownEmail.body);
+
   const duplicate = await request(app).post("/api/auth/register").send({ ...input, email: "jay@example.com" });
   assert.equal(duplicate.status, 409);
   const results = await Promise.all([1, 2].map(() => request(app).post("/api/auth/register").send({
