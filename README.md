@@ -1,11 +1,99 @@
 # Recall
 
-Recall is a DSA learning and revision tracking platform.
+A simple way to keep track of DSA problems and build a regular revision habit.
 
-## Tech Stack
+## About the project
 
-- React
-- Node.js
-- Express
-- MongoDB
-- Mongoose
+I am building Recall as my college major project. I wanted one place to save the
+DSA problems I solve and keep track of what I learn. The goal is to make it easier
+to revisit problems, remember mistakes, and plan revisions.
+
+## Features and progress
+
+| Feature | Current status |
+| --- | --- |
+| User registration | Backend completed and tested |
+| Login and JWT authentication | Planned next |
+| Private problems for each user | Not implemented yet |
+| Problem management | Backend APIs exist; editing is incomplete |
+| Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
+| Learning notes and mistakes | Fields exist; editing needs fixing |
+| Revision tracking, goals, streaks, and dashboard | Planned |
+| Frontend | Basic React page only |
+
+Registration works through the API. There is no registration screen yet.
+Problem APIs are still public until user ownership is added.
+
+## Technologies used
+
+- React, Vite, and Tailwind CSS
+- Node.js and Express.js
+- MongoDB and Mongoose
+- Zod for input validation
+- bcrypt for password hashing
+
+## Project structure
+
+```text
+Recall/
+  client/   React frontend
+  server/   Express backend and tests
+  docs/     API reference and project diary
+```
+
+## Requirements
+
+- Node.js and npm (tested with Node.js 22.23.2)
+- A MongoDB database for local development
+
+## Installation and setup
+
+From the project root, install the dependencies:
+
+```sh
+npm ci
+npm ci --prefix client
+npm ci --prefix server
+```
+
+Copy `server/.env.example` to `server/.env`. Set your development database URL:
+
+```dotenv
+PORT=5000
+MONGO_URI=mongodb://127.0.0.1:27017/recall_dev
+```
+
+This example uses local MongoDB. Replace the URL if you use another development
+database. Keep `.env` and any real credentials out of Git.
+
+## Run the project
+
+Start both apps from the project root:
+
+```sh
+npm run dev
+```
+
+Or run them in separate terminals:
+
+```sh
+npm run client
+npm run server
+```
+
+The frontend normally runs at `http://localhost:5173`. The API uses
+`http://localhost:5000` with the settings above. The server needs a working
+MongoDB connection before it starts listening.
+
+## Current development status
+
+Recall V1 is on Day 1, Checkpoint 1. User registration is tested, including saving
+accounts in a separate test database. Login and problem ownership come next.
+Existing problems without an owner have not been changed.
+
+The Checkpoint 1 test run on November 16, 2026 passed all 10 tests with isolated
+MongoDB enabled, including a check that request logs exclude query strings.
+See the [server README](server/README.md) to run tests and the
+[API reference](docs/api.md) for requests and responses.
+
+V2 is separate. External coding-platform integrations are not part of V1.
