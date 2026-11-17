@@ -2,8 +2,9 @@
 
 Local base URL: `http://localhost:5000/api` when `PORT=5000`.
 
-Registration, login, and JWT generation are implemented and tested.
-JWT verification middleware and user ownership are pending. No endpoint requires a token.
+Registration, login, JWT generation, and JWT verification middleware are implemented and tested.
+User ownership is pending. The middleware is not mounted on production routes;
+no endpoint requires a token yet.
 Problem database operations still need broader testing; the examples describe
 what the current code accepts and returns.
 
@@ -110,7 +111,7 @@ password hash for `bcrypt.compare()`; it never includes the hash in the response
 After password verification, the service issues an HS256 access token with a
 15-minute expiry. The login response includes `data.accessToken` alongside
 `data.user`. No cookie or server session is created. Token verification middleware
-is pending, so this stage does not protect problem routes.
+is available but this stage does not protect problem routes.
 
 The payload contains only `sub` (the user's MongoDB ID), `iss`, `aud`, `iat`, and
 `exp`. Name, email, passwords, hashes, and the signing secret are excluded. JWTs
@@ -395,8 +396,115 @@ normalized emails return 409, invalid inputs return 400, and repeated attempts
 reach 429 with a Retry-After header. Never put passwords in URLs or logs.
 Request logs omit query strings. Use HTTPS for deployment.
 
-The [server README](../server/README.md) explains automated tests. The last
-Checkpoint 2, Stage 2 run on November 16, 2026 passed all 22 tests with none skipped,
-including isolated registration/login verification and query-string logging protection.
-JWT verification middleware and ownership are pending. Ownerless records have not been changed;
+The [server README](../server/README.md) explains automated tests. The
+Checkpoint 2, Stage 3 run on November 17, 2026 passed all 46 tests with isolated MongoDB enabled and none skipped,
+including middleware authentication and rejection after deleting a real user.
+Ownership is pending. Ownerless records have not been changed;
 there is no automatic assignment or public claim endpoint.
+
+## JWT middleware contract
+
+`authenticate` in `server/src/middleware/auth.middleware.js` expects:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+The scheme is case-insensitive. Missing credentials, incorrect schemes, extra
+credentials, and malformed compact JWTs return 401. The middleware verifies the
+signature using **HS256 only**, and checks configured `JWT_ISSUER`,
+`JWT_AUDIENCE`, and expiration. `exp` must be present and numeric; expired tokens
+are rejected at the expiration boundary. `sub` must be a string containing a
+24-character hexadecimal MongoDB ObjectId. Invalid claims fail before a user query.
+
+The middleware then looks up the user in MongoDB on every authenticated request.
+An absent/deleted account returns 401 even if the token is correctly signed and
+unexpired. On success it attaches only `{ id, name, email }` from the current
+database record to `req.user` and calls the next handler. No password hash is
+selected or attached, and extra token claims do not become identity fields.
+
+All authentication rejections have the same **401 Unauthorized** response:
+
+```json
+{
+  "success": false,
+  "message": "Authentication required",
+  "errors": null
+}
+```
+
+Database or JWT configuration failures use **500 Internal Server Error** with
+`errors: null`. No verification exception, configuration value, or database detail
+is exposed. Problem routes, ownership, and frontend authentication are unchanged.
+
+## Manual Postman testing for JWT middleware
+
+There is no production endpoint that invokes the middleware yet. To exercise it
+manually, run this temporary local probe in a separate PowerShell terminal. Use
+a disposable development database in `server/.env`. From the repository root:
+
+```powershell
+Set-Location server
+@'
+import "dotenv/config";
+import express from "express";
+import mongoose from "mongoose";
+import { authenticate } from "./src/middleware/auth.middleware.js";
+import { errorMiddleware } from "./src/middleware/error.middleware.js";
+await mongoose.connect(process.env.MONGO_URI);
+const probe = express();
+probe.get("/auth-probe", authenticate, (req, res) => res.json({ user: req.user }));
+probe.use(errorMiddleware);
+probe.listen(5001, "127.0.0.1", () => console.log("Auth probe: http://127.0.0.1:5001/auth-probe"));
+'@ | node --input-type=module
+```
+
+This creates a separate local process; it does not edit the application or protect
+problem routes. Stop it with Ctrl+C after testing. Start the normal API in another
+terminal with `npm run server` from the root.
+
+1. In Postman, create an account with `POST http://localhost:5000/api/auth/register`
+   using the registration JSON above and a fresh development-only email.
+2. Log in with `POST http://localhost:5000/api/auth/login`. Save
+   `data.accessToken` in a local Postman variable named `accessToken` and save
+   `data.user.id` as `userId`.
+3. Send `GET http://127.0.0.1:5001/auth-probe`. Select Authorization → Bearer Token
+   and enter `{{accessToken}}`. Expect **200**, with `user` containing only
+   `id`, `name`, and `email`.
+4. Run the failure cases below against the probe; expect the exact generic 401
+   response above. Ensure Postman's inherited authorization is disabled when
+   testing a missing header, and avoid duplicate Authorization headers.
+
+| Case | How to test | Expected |
+| --- | --- | --- |
+| Missing token | Select No Auth and remove any Authorization header | 401 |
+| Malformed token | Set `Authorization: Bearer not-a-jwt`, or use `Basic abc` | 401 |
+| Tampered token | Change a character in the payload segment of the saved JWT, preserving its signature | 401 |
+| Expired token | Wait at least 15 minutes after login, or use the locally signed expired fixture below | 401 |
+| Wrong issuer | Use a locally signed fixture with a different issuer (below) | 401 |
+| Wrong audience | Use a locally signed fixture with a different audience (below) | 401 |
+| Deleted user | Log in again; delete only that disposable account in MongoDB Compass by `_id: ObjectId("<userId>")`; resend its unexpired token | 401 |
+
+To create the wrong-issuer, wrong-audience, and expired fixtures quickly, open
+another PowerShell terminal in `server/`, set the registered user's ID, and run:
+
+```powershell
+$env:RECALL_TEST_USER_ID = '<userId>'
+@'
+import "dotenv/config";
+import jwt from "jsonwebtoken";
+import { getJwtConfig } from "./src/config/jwt.js";
+const { secret, issuer, audience } = getJwtConfig();
+const options = { algorithm: "HS256", subject: process.env.RECALL_TEST_USER_ID, issuer, audience, expiresIn: 900 };
+console.log("wrongIssuer:", jwt.sign({}, secret, { ...options, issuer: issuer + "-wrong" }));
+console.log("wrongAudience:", jwt.sign({}, secret, { ...options, audience: audience + "-wrong" }));
+console.log("expired:", jwt.sign({}, secret, { ...options, expiresIn: -1 }));
+'@ | node --input-type=module
+Remove-Item Env:RECALL_TEST_USER_ID
+```
+
+Use each printed development token as the probe's Bearer token. These fixtures
+are signed locally with the same key, so issuer/audience failures exercise claim
+checks rather than a signature mismatch. Do not paste secrets or real tokens
+into online JWT tools, shared Postman environments, or committed files.
+The normal `/api/problems` endpoints remain public even with no token.

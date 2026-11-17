@@ -14,7 +14,7 @@ to revisit problems, remember mistakes, and plan revisions.
 | --- | --- |
 | User registration | Backend completed and tested |
 | Login API | Returns a signed access token and safe user details |
-| JWT authentication | Token generation complete; verification middleware pending |
+| JWT authentication | Token issuance and verification middleware completed and tested; routes remain public |
 | Private problems for each user | Not implemented yet |
 | Problem management | Backend APIs exist; editing is incomplete |
 | Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
@@ -97,13 +97,20 @@ MongoDB connection before it starts listening.
 
 ## Current development status
 
-Recall V1 is on Day 1, Checkpoint 2, Stage 2. Registration and login are tested,
+Recall V1 is on Day 1, Checkpoint 2, Stage 3. Registration and login are tested,
 including registering and logging in against a separate test database.
-Login now issues JWTs. Token verification middleware and problem ownership come next.
+Login issues JWTs. The reusable `authenticate` middleware verifies Bearer tokens,
+HS256 signatures, issuer, audience, expiration, and MongoDB user existence. It
+attaches only `id`, `name`, and `email` to `req.user`. No production route uses
+it yet; problem ownership and frontend authentication are still pending.
 Existing problems without an owner have not been changed.
 
-The Checkpoint 2, Stage 2 test run on November 16, 2026 passed all 22 tests with
-isolated MongoDB enabled, including JWT signatures, claims, expiry, and safe failures.
+Stage 3 adds middleware tests for valid, missing, malformed, tampered, expired,
+wrong-issuer, wrong-audience, and deleted-user tokens, plus claim and algorithm
+checks. The isolated MongoDB test also verifies authentication before and after
+deleting an account. See the API reference for a local Postman probe.
+The November 17, 2026 run passed all 46 tests with isolated MongoDB enabled and
+none skipped.
 See the [server README](server/README.md) to run tests and the
 [API reference](docs/api.md) for requests and responses.
 
