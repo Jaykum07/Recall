@@ -1,8 +1,8 @@
 # Recall Backend
 
 This is the backend for Recall. It handles user registration, login credential
-verification, JWT issuance, and APIs for saving and listing DSA problems. Login
-returns a signed access token; JWT verification middleware is not implemented yet.
+verification, JWT issuance and verification, and APIs for saving and listing DSA problems. Login
+returns a signed access token; reusable JWT verification middleware is implemented.
 Problem APIs are still public pending ownership.
 
 ## Technologies used
@@ -20,14 +20,14 @@ server/
   src/
     config/        Database connection and JWT configuration
     controllers/   Request and response handling
-    middleware/    Error handling and authentication request limits
+    middleware/    JWT authentication, error handling, and authentication request limits
     models/        User and Problem schemas
     routes/        API endpoints
     services/      Registration, login, and problem operations
     validators/    Input checks
     app.js         Express app setup
     server.js      Database connection and server startup
-  tests/           Registration and login tests
+  tests/           Registration, login, token, and authentication middleware tests
 ```
 
 ## Install and configure
@@ -85,7 +85,8 @@ Restart the server after changing `.env`.
 | PATCH | `/api/problems/:id` | Update confidence only |
 | DELETE | `/api/problems/:id` | Delete a problem |
 
-No endpoint requires a token yet. Registration and login are tested; problem database
+No endpoint requires a token yet. Authentication middleware is tested on a separate
+probe app without mounting it on production routes. Registration and login are tested; problem database
 operations still need broader testing. See the [API reference](../docs/api.md)
 for request bodies, responses, and known limitations.
 
@@ -113,7 +114,7 @@ From the project root:
 npm test --prefix server
 ```
 
-This runs 21 tests and skips the database test unless `MONGOD_BINARY` is set.
+The suite has 46 tests: 45 run and the database test is skipped unless `MONGOD_BINARY` is set.
 To include it, point that variable to your local MongoDB executable. For example,
 in PowerShell (replace the path with yours):
 
@@ -127,7 +128,8 @@ own MongoDB process on a random local port with a temporary data folder. It neve
 uses the app's database URL. It stops that process and removes its test folder
 afterward.
 
-The Checkpoint 2, Stage 2 run on November 16, 2026 passed all 22 tests with none skipped.
+The Stage 3 run on November 17, 2026 passed all 46 tests with isolated MongoDB
+enabled and none skipped.
 They cover registration, password hashing, validation, duplicate emails, safe
 errors, request limits, and exclusion of query strings from request logs. The
 database test also checks saved accounts after reconnecting and confirms an
@@ -137,6 +139,33 @@ fields, hidden-hash retrieval, generic errors, and a separate login rate limit.
 JWT tests verify signatures, minimal claims, the 15-minute expiry boundary,
 configuration failures, and that invalid credentials never call the signer.
 Tests generate temporary random signing keys and never read your `.env`.
+
+## JWT verification middleware
+
+`src/middleware/auth.middleware.js` exports `authenticate`. For future protected
+routes it runs before the controller. It is deliberately not mounted on any
+production route in Checkpoint 2, Stage 3.
+
+1. Read `Authorization: Bearer <token>` (case-insensitive scheme; one credential).
+2. Verify with the decoded configured secret and `algorithms: ["HS256"]`, the
+   configured issuer and audience, and expiration checking enabled.
+3. Require a finite numeric `exp` and a string `sub` that is a 24-digit hex MongoDB ID.
+4. Query MongoDB for that ID, selecting only `_id`, `name`, and `email`.
+5. Reject absent/deleted users; otherwise set `req.user = { id, name, email }`
+   from the current database record and call `next()`.
+
+Missing, malformed, invalid, expired, or deleted-user credentials all return
+401 with `{ "success": false, "message": "Authentication required", "errors": null }`.
+Configuration and database failures return the existing generic 500 response.
+No token, password hash, or internal error is returned. The JWT must contain an
+expiration; merely omitting `exp` cannot create a non-expiring accepted token.
+
+Middleware tests cover all required rejection cases, missing claims, invalid
+subjects, HS384 and unsigned tokens, future `nbf`, safe identity fields, and
+generic infrastructure failures. The isolated database test authenticates a
+real login token, deletes that account, and checks the same token returns 401.
+See [manual Postman testing](../docs/api.md#manual-postman-testing-for-jwt-middleware)
+for a local-only probe without changing production routes.
 
 Login normalizes the email, retrieves the account's hidden password hash only
 for verification, and checks the password with `bcrypt.compare()`. Success

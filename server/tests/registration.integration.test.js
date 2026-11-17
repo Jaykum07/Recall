@@ -9,11 +9,14 @@ import path from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { test } from "node:test";
 import bcrypt from "bcrypt";
+import express from "express";
 import jwt from "jsonwebtoken";
 import mongoose from "mongoose";
 import request from "supertest";
 import app from "../src/app.js";
 import User from "../src/models/user.model.js";
+import { authenticate } from "../src/middleware/auth.middleware.js";
+import { errorMiddleware } from "../src/middleware/error.middleware.js";
 
 // This test never reads MONGO_URI or .env. It starts its own local database.
 test("registration persists safely and enforces unique email in isolated MongoDB", {
@@ -114,4 +117,17 @@ test("registration persists safely and enforces unique email in isolated MongoDB
   assert.equal(await User.countDocuments(), 2);
   assert.deepEqual(await mongoose.connection.db.collection("problems").findOne({ _id: legacyId }), legacyBefore);
   assert.equal(await mongoose.connection.db.collection("problems").countDocuments(), 1);
+
+  const authProbe = express();
+  authProbe.get("/probe", authenticate, (req, res) => res.json({ user: req.user }));
+  authProbe.use(errorMiddleware);
+  const authenticated = await request(authProbe).get("/probe")
+    .set("Authorization", `Bearer ${login.body.data.accessToken}`);
+  assert.equal(authenticated.status, 200);
+  assert.deepEqual(authenticated.body, { user: login.body.data.user });
+  await User.deleteOne({ _id: accountId });
+  const deleted = await request(authProbe).get("/probe")
+    .set("Authorization", `Bearer ${login.body.data.accessToken}`);
+  assert.equal(deleted.status, 401);
+  assert.deepEqual(deleted.body, { success: false, message: "Authentication required", errors: null });
 });
