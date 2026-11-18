@@ -288,9 +288,12 @@ Response: **201 Created**
 }
 ```
 
-Possible errors: **400** for schema validation or malformed JSON; **500** for
-unexpected failures. Creation uses Mongoose validation rather than a separate
-request validator.
+Possible errors: **400** for schema validation, malformed JSON, or an invalid body
+shape; **500** for unexpected failures. After authentication, missing/unparsed or
+non-object bodies return `Invalid request body` with `errors: null`. An object
+such as `{}` proceeds to Mongoose and returns safe field-level validation errors.
+No global content-type enforcement was added. Creation otherwise retains its
+existing Mongoose schema validation and successful response.
 
 ## List problems
 
@@ -467,7 +470,10 @@ ID; **404** if absent, owned by another user, or ownerless; **500** for unexpect
 
 ## Error format and testing
 
-Application errors use this shape. Field details appear when available:
+Application errors retain three properties: `success: false`, a human-readable
+`message`, and `errors`. Field validation details are a nonempty array of only
+`{ field, message }` objects; general errors use `errors: null`, not an empty array
+or a native error object. Successful response contracts are unchanged.
 
 ```json
 {
@@ -479,9 +485,57 @@ Application errors use this shape. Field details appear when available:
 }
 ```
 
-Unexpected failures return `Internal Server Error` with `errors: null`.
-Malformed JSON returns `Invalid JSON body` with `errors: null`.
-The old POST `/api/test` endpoint has been removed and returns 404.
+Zod details retain their existing messages and dotted field paths, including an
+empty path for a root-level issue. Mongoose validation uses the same array shape,
+with `Validation failed` as the parent message. Native Mongoose messages are never
+forwarded, including the parent `err.message`. Controlled field messages include
+`This field is required`, `Invalid option`, `Value is too short`, `Value is too long`,
+`Value is below the minimum`, `Value exceeds the maximum`, and `Invalid value type`.
+Unknown validation kinds use `Invalid value`. A native detail without a path uses
+`field: null`. Rejected values, reasons, native metadata, and stacks are omitted.
+
+General example (404 for missing, other-user, or ownerless Problem records):
+
+```json
+{
+  "success": false,
+  "message": "Problem not found",
+  "errors": null
+}
+```
+
+| Status | General response message or behavior |
+| --- | --- |
+| 400 | `Invalid JSON body` for parse failures; `Invalid request body` for the CREATE body guard; existing invalid-ID `Bad Request` remains |
+| 401 | `Invalid email or password` for login; `Authentication required` for protected API credentials |
+| 404 | `Problem not found` for missing/foreign/ownerless records; `Route not found` for unmatched API routes or methods |
+| 409 | `Email is already registered` |
+| 413 | `Request body too large` (existing JSON parser limit: 102,400 bytes) |
+| 415 | `Unsupported request charset` or `Unsupported request encoding` |
+| 429 | Existing endpoint-specific rate-limit message; `Retry-After` and rate-limit headers are preserved |
+| 500 | `Internal Server Error`; unexpected details are hidden |
+
+General responses have `errors: null`. Unsupported or unrecognized internal error
+messages are not forwarded blindly. Error normalization leaves the original error
+object intact for server-side debugging. No new 403 ownership behavior is added.
+
+The JSON not-found fallback is mounted only under `/api`; non-API routes retain
+Express's existing fallback behavior. The removed POST `/api/test` returns JSON
+404 with `Route not found`. Paths and query strings are not echoed in the body.
+
+JSON parsing precedes routers, so parser failures can return 400/413/415 before
+authentication. Once parsing succeeds, Problem authentication precedes validation
+and the not-found fallback, including for unmatched paths under `/api/problems`.
+Registration/login rate limiting still precedes their validators. If headers have
+already been sent, the error is delegated; a closed connection cannot be promised
+a new JSON response.
+
+Task 2 verification on November 18, 2026 passed 9 focused error-handling tests,
+68 authentication/Problem regression tests, and all 79 backend tests, with no
+failures or skips. Database integration used isolated MongoDB. Checks cover
+sanitized Mongoose parent/field errors, invalid CREATE requests without writes,
+API-only JSON 404s, parser 400/413/415 responses, and preserved authentication,
+ownership, successful responses, and rate-limit headers.
 
 For Postman, use a development database. Check registration succeeds, repeated
 normalized emails return 409, invalid inputs return 400, and repeated attempts

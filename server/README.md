@@ -91,6 +91,38 @@ registration, and login remain public. Registration and login are tested; proble
 operations still need broader testing. See the [API reference](../docs/api.md)
 for request bodies, responses, and known limitations.
 
+## API error responses
+
+Errors use `{ success: false, message, errors }`. Field validation details are
+an array of only `{ field, message }`; general errors use `errors: null`.
+Zod field arrays are preserved. Native Mongoose validation becomes a safe array
+with parent message `Validation failed` and controlled field messages. Neither
+native parent/field messages nor rejected values, reasons, or metadata are exposed.
+
+`src/middleware/error.middleware.js` normalizes errors centrally, validates status
+codes, handles known parser errors, and delegates if headers were already sent.
+Unknown messages are not forwarded blindly; unexpected failures remain generic
+500 responses. The original error is not mutated. Existing 401 responses and
+429 bodies/headers remain unchanged, as do successful API responses.
+
+`app.js` has an `/api`-scoped JSON 404 fallback (`Route not found`); non-API routing
+is unchanged. Problem services use `Problem not found` for missing, foreign-owned,
+and ownerless records. Their ownership queries are unchanged; no 403 is introduced.
+CREATE has only a small object-body guard: missing/unparsed or array bodies return
+400 `Invalid request body`, while invalid fields continue through model validation.
+There is no new global content-type requirement.
+
+JSON parsing runs first. Malformed JSON returns sanitized 400 `Invalid JSON body`,
+oversized JSON retains 413, and unsupported charset/encoding retains 415. The
+parser limit remains 102,400 bytes. These errors can precede authentication;
+otherwise protected Problem routes authenticate before validation or route fallback.
+See the [API error reference](../docs/api.md#error-format-and-testing) for examples.
+
+Task 2 verification on November 18, 2026 passed 9 focused error tests, 68 existing
+authentication/Problem regression tests, and all 79 backend tests with isolated
+MongoDB enabled and none skipped. Tests verify native error sanitization, API-only
+fallback behavior, parser statuses, and invalid CREATE requests without writes.
+
 ## Run the server
 
 From the project root:

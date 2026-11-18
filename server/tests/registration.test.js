@@ -121,8 +121,9 @@ test("registration is rate limited after 20 attempts from the same IP", async ()
   }
   const res = await request(app).post("/api/auth/register").send({});
   assert.equal(res.status, 429);
-  assert.equal(res.body.success, false);
+  assert.deepEqual(res.body, { success: false, message: "Too many registration attempts. Please try again later.", errors: null });
   assert.ok(res.headers["retry-after"]);
+  assert.ok(res.headers["ratelimit"]);
 });
 
 test("health remains available and the request-body debug endpoint is removed", async () => {

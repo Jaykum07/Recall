@@ -125,7 +125,7 @@ export const getProblemService = async (id, userId) => {
     const problemData = await Problem.findOne({ _id: id, userId });
 
     if (!problemData) {
-      const error = new Error("Problem not Found");
+      const error = new Error("Problem not found");
       error.statusCode = 404;
 
       throw error;
@@ -171,7 +171,7 @@ export const updateProblemService = async (id, data, userId) => {
     );
 
     if (!problemData) {
-      const error = new Error("Problem not Found");
+      const error = new Error("Problem not found");
       error.statusCode = 404;
 
       throw error;
@@ -195,7 +195,7 @@ export const deleteProblemService = async (id, userId) => {
     const data = await Problem.findOneAndDelete({ _id: id, userId });
 
     if (!data) {
-      const error = new Error("Problem not found.");
+      const error = new Error("Problem not found");
       error.statusCode = 404;
 
       throw error;

@@ -8,6 +8,11 @@ import {
 
 export const createProblemController = async (req, res, next) => {
   try {
+    if (!req.body || typeof req.body !== "object" || Array.isArray(req.body)) {
+      const error = new Error("Invalid request body");
+      error.statusCode = 400;
+      return next(error);
+    }
     const problem = await createProblemService(req.body, req.user.id);
     res.status(201).json({
       success: true,

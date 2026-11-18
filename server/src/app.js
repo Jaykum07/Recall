@@ -19,6 +19,12 @@ app.use("/api", healthRouter);
 app.use("/api/auth", authRouter);
 app.use("/api/problems", problemRouter);
 
+app.use("/api", (req, res, next) => {
+  const error = new Error("Route not found");
+  error.statusCode = 404;
+  next(error);
+});
+
 app.use(errorMiddleware);
 
 export default app;

@@ -150,6 +150,8 @@ test("login attempts have a separate rate limit", async () => {
   }
   const res = await request(app).post("/api/auth/login").send({});
   assert.equal(res.status, 429);
+  assert.deepEqual(res.body, { success: false, message: "Too many login attempts. Please try again later.", errors: null });
   assert.ok(res.headers["retry-after"]);
+  assert.ok(res.headers["ratelimit"]);
   assert.equal((await request(app).post("/api/auth/register").send({})).status, 400);
 });

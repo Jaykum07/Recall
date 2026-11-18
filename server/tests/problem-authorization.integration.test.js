@@ -94,6 +94,82 @@ test("Problem APIs enforce ownership for two authenticated users in isolated Mon
   let primary;
   let spoofed;
 
+  await t.test("missing, unparsed, and non-object CREATE bodies return controlled 400 without writes", async (formatTest) => {
+    const createQuery = formatTest.mock.method(Problem, "create", () => {
+      throw new Error("Invalid body shapes must not reach the database operation");
+    });
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    const requests = [
+      () => send(a, "post", "/api/problems"),
+      () => send(a, "post", "/api/problems").type("text").send("private-unparsed-body"),
+      () => send(a, "post", "/api/problems").type("form").send({ private: "unparsed" }),
+      () => send(a, "post", "/api/problems").send([]),
+    ];
+    for (const pending of requests) {
+      const response = await pending();
+      assert.equal(response.status, 400);
+      assert.deepEqual(response.body, { success: false, message: "Invalid request body", errors: null });
+      assert.equal(createQuery.mock.callCount(), 0);
+      assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+    }
+  });
+
+  await t.test("real Mongoose validation and casting failures return safe field arrays without writes", async () => {
+    const secret = "private-rejected-value";
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    const invalid = [
+      [{}, "problemInfo.problemName", "This field is required"],
+      [content("ab"), "problemInfo.problemName", "Value is too short"],
+      [content("Invalid enum", { difficulty: secret }), "problemInfo.difficulty", "Invalid option"],
+      [content("Invalid type", { problemUrl: { private: secret } }), "problemInfo.problemUrl", "Invalid value type"],
+      [{ ...content("Invalid date"), userLearningInfo: { firstSolvedAt: secret, lastSolvedAt: "2026-11-18T00:00:00Z" } }, "userLearningInfo.firstSolvedAt", "Invalid value type"],
+      [{ ...content("Invalid length"), userLearningInfo: { ...content("Unused").userLearningInfo, whatILearned: secret.repeat(100) } }, "userLearningInfo.whatILearned", "Value is too long"],
+    ];
+    for (const [body, field, message] of invalid) {
+      const response = await send(a, "post", "/api/problems").send(body);
+      assert.equal(response.status, 400);
+      assert.equal(response.body.success, false);
+      assert.equal(response.body.message, "Validation failed");
+      assert.ok(response.body.errors.some((detail) => detail.field === field && detail.message === message));
+      for (const detail of response.body.errors) assert.deepEqual(Object.keys(detail).sort(), ["field", "message"]);
+      for (const privateValue of [secret, "ValidatorError", "CastError", '"value":', '"reason":']) {
+        assert.ok(!JSON.stringify(response.body).includes(privateValue));
+      }
+      assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+    }
+  });
+
+  await t.test("authenticated invalid IDs and missing resources have consistent JSON errors", async () => {
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    for (const [id, status, message] of [
+      ["invalid-id", 400, "Bad Request"],
+      [new mongoose.Types.ObjectId().toString(), 404, "Problem not found"],
+    ]) {
+      for (const method of ["get", "patch", "delete"]) {
+        let pending = send(a, method, `/api/problems/${id}`);
+        if (method === "patch") pending = pending.send({ userLearningInfo: { confidence: 4 } });
+        const response = await pending;
+        assert.equal(response.status, status);
+        assert.deepEqual(response.body, { success: false, message, errors: null });
+      }
+    }
+    const unsupported = await send(a, "put", "/api/problems/any-id").send({});
+    assert.equal(unsupported.status, 404);
+    assert.deepEqual(unsupported.body, { success: false, message: "Route not found", errors: null });
+    assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+  });
+
+  await t.test("unexpected Problem service failures remain generic 500 without database writes", async (failureTest) => {
+    failureTest.mock.method(Problem, "create", () => {
+      throw Object.assign(new Error("private-database-details"), { errors: { value: "private-rejected-content" } });
+    });
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    const response = await send(a, "post", "/api/problems").send(content("Internal failure"));
+    assert.equal(response.status, 500);
+    assert.deepEqual(response.body, { success: false, message: "Internal Server Error", errors: null });
+    assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+  });
+
   await t.test("User A creates a problem without sending an owner", async () => {
     primary = await create(a, content("Shared Alpha"));
     const stored = await collection.findOne({ _id: new mongoose.Types.ObjectId(primary._id) });
