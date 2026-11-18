@@ -7,3 +7,9 @@ dist/
 build/
 
 .DS_Store
+
+# Postman local workspace settings
+.postman/
+
+# Postman personal globals
+postman/globals/
