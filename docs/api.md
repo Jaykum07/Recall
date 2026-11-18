@@ -3,8 +3,9 @@
 Local base URL: `http://localhost:5000/api` when `PORT=5000`.
 
 Registration, login, JWT generation, and JWT verification middleware are implemented and tested.
-User ownership is pending. The middleware is not mounted on production routes;
-no endpoint requires a token yet.
+The Problem ownership schema and ownership enforcement are implemented.
+All Problem routes require a Bearer access token. Health, registration, and login
+remain public.
 Problem database operations still need broader testing; the examples describe
 what the current code accepts and returns.
 
@@ -174,11 +175,54 @@ Response: **200 OK**
 This confirms the API responds; it does not check MongoDB readiness. There are
 no endpoint-specific validation errors.
 
+## Problem ownership schema
+
+Checkpoint 3, Stage 1 adds `userId` to `server/src/models/problem.model.js`:
+
+| Property | Schema behavior |
+| --- | --- |
+| Type | `mongoose.Schema.Types.ObjectId` |
+| Reference | `User` (the existing registered model name) |
+| Required | Yes, during normal document validation on create/save |
+| Index | Non-unique ascending `{ userId: 1 }` for user-based queries |
+| Default/backfill | None; existing ownerless records are not assigned an owner |
+
+Existing ownerless records remain readable directly in MongoDB or through the
+model, outside these authenticated APIs. Normal document saves fail required
+validation until an owner is explicitly provided. Query updates validate only
+affected paths; this schema change is not a database collection validator or a
+complete authorization mechanism. `ref` permits population but does not require
+the referenced account to exist. Multiple problems may reference the same user.
+
+Checkpoint 3, Stage 3 enforces ownership after authentication. Controllers pass
+`req.user.id` separately from request data. CREATE sets `userId` from that trusted
+identity, ignoring ownership fields and `_id` in the body. UPDATE permits only
+the existing confidence change and cannot modify `userId`.
+
+LIST begins with `{ userId: ObjectId(req.user.id) }` in its aggregation `$match`
+and uses the same filter for counts. Search, filters, sorting, pagination, and
+pagination totals therefore only operate on the caller's problems. Single-record
+queries and atomic writes use `{ _id: problemId, userId: req.user.id }`.
+
+Missing, other-user, and ownerless records return 404 for GET/UPDATE/DELETE with
+the same error for each operation, without disclosing whether another user owns
+the ID. Malformed IDs still return 400. Existing ownerless documents remain
+unchanged in MongoDB and are excluded from all API queries and counts. There is
+no automatic assignment, migration, or claim endpoint. Frontend integration is deferred.
+The November 18, 2026 Checkpoint 3, Stage 3 run passed all 62 tests with isolated
+MongoDB enabled and none skipped, including two-user authorization, spoofing,
+ownerless preservation, and scoped search/filter/sort/pagination/count checks.
+
+The November 17, 2026 Checkpoint 3, Stage 1 run passed all 50 tests with isolated
+MongoDB enabled and none skipped. Ownership tests verify persistence with a real
+user reference, the non-unique index, required/invalid ID validation, and unchanged
+ownerless records.
+
 ## Add a problem
 
 **POST `/api/problems`**
 
-Authentication: none at this checkpoint. Send `Content-Type: application/json`.
+Authentication: Bearer access token required. Send `Content-Type: application/json`.
 
 Minimum body:
 
@@ -202,6 +246,12 @@ Optional fields: `problemInfo.description`, `problemInfo.tags`,
 `userLearningInfo.mistake`. Notes and mistakes are limited to 1,000 characters.
 Problem names must contain 3 to 100 characters.
 
+Do not send `userId`. The service supplies the authenticated user's ID, satisfying
+the schema's required ObjectId field. Body-supplied ownership fields (`userId`,
+`ownerId`, `user`) and `_id` are safely ignored; they cannot create a problem for
+another account or overwrite an existing document. The response includes the
+server-assigned `userId` (illustrated below).
+
 Platforms: `leetcode`, `gfg`, `codechef`, `codeforces`, `other`.
 Difficulties: `easy`, `medium`, `hard`.
 
@@ -216,6 +266,7 @@ Response: **201 Created**
   "message": "problem created",
   "data": {
     "_id": "<problem-id>",
+    "userId": "507f1f77bcf86cd799439011",
     "problemInfo": {
       "problemName": "Two Sum",
       "problemUrl": "https://leetcode.com/problems/two-sum/",
@@ -244,9 +295,13 @@ request validator.
 
 **GET `/api/problems`**
 
-Authentication: none at this checkpoint. Request body: none.
+Authentication: Bearer access token required. Request body: none.
 
 All query parameters are optional:
+
+Results and all pagination totals include only the authenticated user's problems.
+Search, filters, and sorting cannot expand access to another user's or an ownerless
+record. Client-supplied owner query parameters are rejected as unknown fields.
 
 | Parameter | Accepted values |
 | --- | --- |
@@ -297,7 +352,7 @@ database. These behaviors still need fixes and database regression tests.
 
 **GET `/api/problems/:id`**
 
-Authentication: none at this checkpoint. Request body: none. Replace `:id` with
+Authentication: Bearer access token required. Request body: none. Replace `:id` with
 a MongoDB ObjectId.
 
 Response: **200 OK** (problem fields abbreviated):
@@ -314,14 +369,15 @@ Response: **200 OK** (problem fields abbreviated):
 ```
 
 The full document uses the shape shown in the create response.
-Possible errors: **400** for an invalid ID; **404** if absent; **500** for an
+Possible errors: **400** for an invalid ID; **404** if absent, owned by another user,
+or ownerless; **500** for an
 unexpected failure.
 
 ## Update confidence
 
 **PATCH `/api/problems/:id`**
 
-Authentication: none at this checkpoint. Send `Content-Type: application/json`.
+Authentication: Bearer access token required. Send `Content-Type: application/json`.
 
 Required body for a working update:
 
@@ -336,6 +392,10 @@ Required body for a working update:
 Confidence must be a number from 0 to 5. Other learning fields pass validation
 but are currently ignored by the service. Sending only notes or mistakes
 returns 400. Problem metadata cannot be edited yet.
+Top-level ownership fields are ignored when a supported confidence change is
+present; ownership-only payloads return 400. Nested unknown learning fields fail
+validation. `userId` is never included in the update. Updates match both the
+problem ID and authenticated owner in one database operation.
 
 Response: **200 OK** (problem fields abbreviated):
 
@@ -351,14 +411,15 @@ Response: **200 OK** (problem fields abbreviated):
 ```
 
 The message spelling matches the current code. Possible errors: **400** for
-invalid input, invalid ID, or no supported update; **404** if absent; **500**
+invalid input, invalid ID, or no supported update; **404** if absent, owned by
+another user, or ownerless; **500**
 for unexpected failures.
 
 ## Delete a problem
 
 **DELETE `/api/problems/:id`**
 
-Authentication: none at this checkpoint. Request body: none.
+Authentication: Bearer access token required. Request body: none.
 
 Response: **200 OK** (problem fields abbreviated):
 
@@ -371,7 +432,7 @@ Response: **200 OK** (problem fields abbreviated):
 ```
 
 `data` contains the deleted document. Possible errors: **400** for an invalid
-ID; **404** if absent; **500** for unexpected failures.
+ID; **404** if absent, owned by another user, or ownerless; **500** for unexpected failures.
 
 ## Error format and testing
 
@@ -399,7 +460,7 @@ Request logs omit query strings. Use HTTPS for deployment.
 The [server README](../server/README.md) explains automated tests. The
 Checkpoint 2, Stage 3 run on November 17, 2026 passed all 46 tests with isolated MongoDB enabled and none skipped,
 including middleware authentication and rejection after deleting a real user.
-Ownership is pending. Ownerless records have not been changed;
+Ownership is enforced. Ownerless records have not been changed;
 there is no automatic assignment or public claim endpoint.
 
 ## JWT middleware contract
@@ -435,45 +496,47 @@ All authentication rejections have the same **401 Unauthorized** response:
 
 Database or JWT configuration failures use **500 Internal Server Error** with
 `errors: null`. No verification exception, configuration value, or database detail
-is exposed. Problem routes, ownership, and frontend authentication are unchanged.
+is exposed. All five Problem routes apply this middleware before route validators
+and controllers via `router.use(authenticate)`. Missing/invalid credentials return
+401 before Problem data access. Global JSON parsing still runs before routers, so
+malformed JSON can return 400 before authentication.
+
+After authentication, Problem services scope queries to `req.user.id` and exclude
+other users' and ownerless records. Frontend authentication is unchanged. All Problem endpoints
+can return the generic 401 above in addition to their documented errors. Health,
+registration, and login remain public.
 
 ## Manual Postman testing for JWT middleware
 
-There is no production endpoint that invokes the middleware yet. To exercise it
-manually, run this temporary local probe in a separate PowerShell terminal. Use
-a disposable development database in `server/.env`. From the repository root:
+The Checkpoint 3, Stage 2 run on November 18, 2026 passed all 54 tests with isolated
+MongoDB enabled and none skipped. Integration checks cover missing/invalid tokens
+on all five Problem routes, authenticated CRUD through the existing controllers,
+and public health/register/login access.
 
-```powershell
-Set-Location server
-@'
-import "dotenv/config";
-import express from "express";
-import mongoose from "mongoose";
-import { authenticate } from "./src/middleware/auth.middleware.js";
-import { errorMiddleware } from "./src/middleware/error.middleware.js";
-await mongoose.connect(process.env.MONGO_URI);
-const probe = express();
-probe.get("/auth-probe", authenticate, (req, res) => res.json({ user: req.user }));
-probe.use(errorMiddleware);
-probe.listen(5001, "127.0.0.1", () => console.log("Auth probe: http://127.0.0.1:5001/auth-probe"));
-'@ | node --input-type=module
-```
-
-This creates a separate local process; it does not edit the application or protect
-problem routes. Stop it with Ctrl+C after testing. Start the normal API in another
-terminal with `npm run server` from the root.
+Use a disposable development database in `server/.env` and start the normal API
+from the repository root with `npm run server`. No temporary probe server is needed.
 
 1. In Postman, create an account with `POST http://localhost:5000/api/auth/register`
-   using the registration JSON above and a fresh development-only email.
+   using the registration JSON above and a fresh development-only email. No token is needed.
 2. Log in with `POST http://localhost:5000/api/auth/login`. Save
    `data.accessToken` in a local Postman variable named `accessToken` and save
    `data.user.id` as `userId`.
-3. Send `GET http://127.0.0.1:5001/auth-probe`. Select Authorization → Bearer Token
-   and enter `{{accessToken}}`. Expect **200**, with `user` containing only
-   `id`, `name`, and `email`.
-4. Run the failure cases below against the probe; expect the exact generic 401
-   response above. Ensure Postman's inherited authorization is disabled when
-   testing a missing header, and avoid duplicate Authorization headers.
+3. Send `GET http://localhost:5000/api/problems`. Select Authorization > Bearer Token
+   and enter `{{accessToken}}`. Expect **200** with the existing problems/pagination
+   response containing only that account's problems. This endpoint does not return `req.user`.
+4. Exercise POST, GET by ID, PATCH, and DELETE with the same Bearer token and the
+   documented request bodies. Omit `userId` on POST; it is assigned from the token.
+5. Run the failure cases below against `GET /api/problems`; expect the exact generic
+   401 response above. Ensure inherited authorization is disabled when testing a
+   missing header, and avoid duplicate Authorization headers.
+6. Register and log in a second disposable user with a separate token. Create a
+   problem as User A and save its `_id`. With User B's token, verify LIST excludes
+   it and GET/PATCH/DELETE by that ID return 404. For PATCH use a valid confidence body.
+7. As User B, POST a problem with User A's `userId` in the body: expect 201 with
+   User B's ID in the response. As User A, PATCH its own problem with a valid
+   confidence change plus User B's `userId`: expect 200 with ownership still set
+   to User A. Repeat searches/filters and paginated lists using both tokens;
+   each account's records and totals must remain separate.
 
 | Case | How to test | Expected |
 | --- | --- | --- |
@@ -503,8 +566,9 @@ console.log("expired:", jwt.sign({}, secret, { ...options, expiresIn: -1 }));
 Remove-Item Env:RECALL_TEST_USER_ID
 ```
 
-Use each printed development token as the probe's Bearer token. These fixtures
+Use each printed development token as the Problem request's Bearer token. These fixtures
 are signed locally with the same key, so issuer/audience failures exercise claim
 checks rather than a signature mismatch. Do not paste secrets or real tokens
 into online JWT tools, shared Postman environments, or committed files.
-The normal `/api/problems` endpoints remain public even with no token.
+All `/api/problems` endpoints require a valid token; `/api/health` and the
+registration/login endpoints remain public.

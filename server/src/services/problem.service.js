@@ -1,10 +1,12 @@
 import mongoose from "mongoose";
 import Problem from "../models/problem.model.js";
 
-export const createProblemService = async (problemData) => {
+export const createProblemService = async (problemData, userId) => {
   try {
     const problem = await Problem.create({
-      ...problemData,
+      // Accept problem content only; ownership always comes from authentication.
+      problemInfo: problemData.problemInfo,
+      userId,
       userLearningInfo: {
         ...problemData.userLearningInfo,
         confidence: 3,
@@ -27,11 +29,12 @@ export const getProblemsService = async ({
   limit = 10,
   sortBy,
   order,
-}) => {
+}, userId) => {
   try {
     const pipeline = [];
 
-    const filter = {};
+    // Mongoose does not cast aggregation pipeline values to ObjectIds.
+    const filter = { userId: new mongoose.Types.ObjectId(userId) };
     if (difficulty !== undefined) {
       filter["problemInfo.difficulty"] = difficulty;
     }
@@ -110,7 +113,7 @@ export const getProblemsService = async ({
   }
 };
 
-export const getProblemService = async (id) => {
+export const getProblemService = async (id, userId) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       const error = new Error("Bad Request");
@@ -119,7 +122,7 @@ export const getProblemService = async (id) => {
       throw error;
     }
 
-    const problemData = await Problem.findById(id);
+    const problemData = await Problem.findOne({ _id: id, userId });
 
     if (!problemData) {
       const error = new Error("Problem not Found");
@@ -134,7 +137,7 @@ export const getProblemService = async (id) => {
   }
 };
 
-export const updateProblemService = async (id, data) => {
+export const updateProblemService = async (id, data, userId) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       const error = new Error("Bad Request");
@@ -156,11 +159,11 @@ export const updateProblemService = async (id, data) => {
       throw error;
     }
 
-    const problemData = await Problem.findByIdAndUpdate(
-      id,
+    const problemData = await Problem.findOneAndUpdate(
+      { _id: id, userId },
       { $set: updatedData },
       {
-        new: true,
+        returnDocument: "after",
         runValidators: true,
       }
     );
@@ -178,7 +181,7 @@ export const updateProblemService = async (id, data) => {
   }
 };
 
-export const deleteProblemService = async (id) => {
+export const deleteProblemService = async (id, userId) => {
   try {
     if (!mongoose.Types.ObjectId.isValid(id)) {
       const error = new Error("Bad Request");
@@ -187,7 +190,7 @@ export const deleteProblemService = async (id) => {
       throw error;
     }
 
-    const data = await Problem.findByIdAndDelete(id);
+    const data = await Problem.findOneAndDelete({ _id: id, userId });
 
     if (!data) {
       const error = new Error("Problem not found.");

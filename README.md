@@ -14,8 +14,8 @@ to revisit problems, remember mistakes, and plan revisions.
 | --- | --- |
 | User registration | Backend completed and tested |
 | Login API | Returns a signed access token and safe user details |
-| JWT authentication | Token issuance and verification middleware completed and tested; routes remain public |
-| Private problems for each user | Not implemented yet |
+| JWT authentication | Token issuance and verification complete; all Problem routes require a Bearer token |
+| Private problems for each user | Authenticated ownership enforced across all Problem APIs |
 | Problem management | Backend APIs exist; editing is incomplete |
 | Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
 | Learning notes and mistakes | Fields exist; editing needs fixing |
@@ -23,7 +23,10 @@ to revisit problems, remember mistakes, and plan revisions.
 | Frontend | Basic React page only |
 
 Registration and login work through the API. There is no authentication UI yet.
-Problem APIs are still public until user ownership is added.
+Problem APIs require authentication and only access the caller's problems. New
+problems take `userId` exclusively from the authenticated identity; client-supplied
+ownership fields are ignored.
+Health, registration, and login remain public.
 
 ## Technologies used
 
@@ -97,20 +100,36 @@ MongoDB connection before it starts listening.
 
 ## Current development status
 
-Recall V1 is on Day 1, Checkpoint 2, Stage 3. Registration and login are tested,
+Recall V1 is on Day 1, Checkpoint 3, Stage 3. Registration and login are tested,
 including registering and logging in against a separate test database.
 Login issues JWTs. The reusable `authenticate` middleware verifies Bearer tokens,
 HS256 signatures, issuer, audience, expiration, and MongoDB user existence. It
-attaches only `id`, `name`, and `email` to `req.user`. No production route uses
-it yet; problem ownership and frontend authentication are still pending.
+attaches only `id`, `name`, and `email` to `req.user`. All Problem routes run it
+before their validators and controllers. Controllers pass `req.user.id` separately
+to the services. Lists, filters, searches, sorting, pagination, and counts are
+owner-scoped. GET, UPDATE, and DELETE query both the problem ID and owner ID;
+another user's or an ownerless problem returns 404. Frontend authentication is pending.
 Existing problems without an owner have not been changed.
 
-Stage 3 adds middleware tests for valid, missing, malformed, tampered, expired,
+The Problem schema now requires `userId`, a MongoDB ObjectId referencing `User`,
+with a non-unique ascending index for user-based queries. No default owner or
+migration is provided. Existing ownerless records remain readable directly in MongoDB, but normal
+document validation rejects saving them without an owner. API clients omit
+`userId` on CREATE: the service supplies it from authentication. API requests cannot
+claim or modify legacy ownerless records. See the [schema contract](docs/api.md#problem-ownership-schema).
+
+Checkpoint 2, Stage 3 added middleware tests for valid, missing, malformed, tampered, expired,
 wrong-issuer, wrong-audience, and deleted-user tokens, plus claim and algorithm
 checks. The isolated MongoDB test also verifies authentication before and after
-deleting an account. See the API reference for a local Postman probe.
-The November 17, 2026 run passed all 46 tests with isolated MongoDB enabled and
-none skipped.
+deleting an account. See the API reference for Postman testing against `/api/problems`.
+The Checkpoint 3, Stage 1 run on November 17, 2026 passed all 50 tests with isolated
+MongoDB enabled and none skipped, including creation with a user reference,
+required-owner validation, index verification, and unchanged legacy records.
+The Checkpoint 3, Stage 2 run on November 18, 2026 passed all 54 tests with isolated
+MongoDB enabled and none skipped, including authentication on every Problem route,
+successful authenticated CRUD, and public health/register/login access.
+The Checkpoint 3, Stage 3 run on November 18, 2026 passed all 62 tests with isolated
+MongoDB enabled and none skipped, including two-user ownership and spoofing checks.
 See the [server README](server/README.md) to run tests and the
 [API reference](docs/api.md) for requests and responses.
 

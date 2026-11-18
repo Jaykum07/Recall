@@ -8,7 +8,7 @@ import {
 
 export const createProblemController = async (req, res, next) => {
   try {
-    const problem = await createProblemService(req.body);
+    const problem = await createProblemService(req.body, req.user.id);
     res.status(201).json({
       success: true,
       message: "problem created",
@@ -21,7 +21,7 @@ export const createProblemController = async (req, res, next) => {
 
 export const getProblemsController = async (req, res, next) => {
   try {
-    const data = await getProblemsService(req.validatedQuery);
+    const data = await getProblemsService(req.validatedQuery, req.user.id);
     res.status(200).json({
       success: true,
       message: "problems fetched",
@@ -34,7 +34,7 @@ export const getProblemsController = async (req, res, next) => {
 
 export const getProblemController = async (req, res, next) => {
   try {
-    const data = await getProblemService(req.params.id);
+    const data = await getProblemService(req.params.id, req.user.id);
     res.status(200).json({
       success: true,
       message: "problem with id fetched",
@@ -47,7 +47,7 @@ export const getProblemController = async (req, res, next) => {
 
 export const updateProblemController = async (req, res, next) => {
   try {
-    const data = await updateProblemService(req.params.id, req.body);
+    const data = await updateProblemService(req.params.id, req.body, req.user.id);
     res.status(200).json({
       success: true,
       message: "update succesfully",
@@ -60,7 +60,7 @@ export const updateProblemController = async (req, res, next) => {
 
 export const deleteProblemController = async (req, res, next) => {
   try {
-    const data = await deleteProblemService(req.params.id);
+    const data = await deleteProblemService(req.params.id, req.user.id);
 
     res.status(200).json({
       success: true,

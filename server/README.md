@@ -3,7 +3,8 @@
 This is the backend for Recall. It handles user registration, login credential
 verification, JWT issuance and verification, and APIs for saving and listing DSA problems. Login
 returns a signed access token; reusable JWT verification middleware is implemented.
-Problem APIs are still public pending ownership.
+Problem APIs require Bearer authentication and enforce per-user ownership. New
+problems derive `userId` exclusively from the authenticated identity.
 
 ## Technologies used
 
@@ -27,7 +28,7 @@ server/
     validators/    Input checks
     app.js         Express app setup
     server.js      Database connection and server startup
-  tests/           Registration, login, token, and authentication middleware tests
+  tests/           Authentication, ownership schema, and two-user authorization tests
 ```
 
 ## Install and configure
@@ -85,8 +86,8 @@ Restart the server after changing `.env`.
 | PATCH | `/api/problems/:id` | Update confidence only |
 | DELETE | `/api/problems/:id` | Delete a problem |
 
-No endpoint requires a token yet. Authentication middleware is tested on a separate
-probe app without mounting it on production routes. Registration and login are tested; problem database
+Every Problem endpoint requires `Authorization: Bearer <accessToken>`. Health,
+registration, and login remain public. Registration and login are tested; problem database
 operations still need broader testing. See the [API reference](../docs/api.md)
 for request bodies, responses, and known limitations.
 
@@ -114,8 +115,8 @@ From the project root:
 npm test --prefix server
 ```
 
-The suite has 46 tests: 45 run and the database test is skipped unless `MONGOD_BINARY` is set.
-To include it, point that variable to your local MongoDB executable. For example,
+Database integration tests are skipped unless `MONGOD_BINARY` is set.
+To include them, point that variable to your local MongoDB executable. For example,
 in PowerShell (replace the path with yours):
 
 ```powershell
@@ -123,12 +124,12 @@ $env:MONGOD_BINARY = 'C:\Program Files\MongoDB\Server\8.3\bin\mongod.exe'
 npm test --prefix server
 ```
 
-Set this variable in your terminal, not in `.env`. The database test starts its
-own MongoDB process on a random local port with a temporary data folder. It never
-uses the app's database URL. It stops that process and removes its test folder
+Set this variable in your terminal, not in `.env`. Each database test starts its
+own MongoDB process on a random local port with a temporary data folder. They never
+use the app's database URL. Each stops its process and removes its test folder
 afterward.
 
-The Stage 3 run on November 17, 2026 passed all 46 tests with isolated MongoDB
+The Checkpoint 2, Stage 3 run on November 17, 2026 passed all 46 tests with isolated MongoDB
 enabled and none skipped.
 They cover registration, password hashing, validation, duplicate emails, safe
 errors, request limits, and exclusion of query strings from request logs. The
@@ -140,11 +141,59 @@ JWT tests verify signatures, minimal claims, the 15-minute expiry boundary,
 configuration failures, and that invalid credentials never call the signer.
 Tests generate temporary random signing keys and never read your `.env`.
 
+## Problem ownership schema
+
+Checkpoint 3, Stage 1 adds this field in `src/models/problem.model.js`:
+
+```js
+userId: {
+  type: mongoose.Schema.Types.ObjectId,
+  ref: "User",
+  required: true,
+  index: true,
+}
+```
+
+The ascending `{ userId: 1 }` index is non-unique: one user may own many problems.
+`ref` enables population; it does not check that the user exists or enforce access.
+The schema requirement applies to normal Mongoose document validation, including create
+and save. There is no default, backfill, migration, or database collection validator.
+Existing ownerless documents remain readable directly through the model/database
+and unchanged in storage. Saving one normally
+fails validation until an explicit owner is supplied; query updates only validate
+the affected paths, so this is not a blanket ownership requirement for every write.
+
+Checkpoint 3, Stage 3 enforces ownership in the controllers and services:
+
+- Controllers pass `req.user.id` as a separate argument to every Problem service.
+- CREATE accepts only problem content and sets `userId` from that trusted argument.
+  Client-supplied `userId`, ownership aliases, and `_id` are ignored. Omit `userId`
+  from the request body; the schema requirement is fulfilled by the service.
+- LIST starts with an ObjectId owner filter before search, filters, sorting, and
+  pagination; aggregation and `countDocuments` share that filter.
+- GET, UPDATE, and DELETE use `{ _id: id, userId }`. Writes are scoped in the
+  database operation itself. Missing, other-user, and ownerless records return 404.
+- UPDATE builds only a confidence `$set`; ownership fields cannot change ownership.
+  An ownership-only request has no supported update and returns 400.
+
+Ownerless records stay in MongoDB without assignment or migration and are excluded
+from every user's API access and counts. The schema's `ref` alone is not an access
+control; the scoped service queries enforce it. No frontend change is included.
+
+`tests/problem-ownership.integration.test.js` uses isolated MongoDB to verify
+creation with a real user reference, population, multiple problems per user, the
+actual non-unique index, missing/null/malformed IDs, and preservation of a legacy
+ownerless record after model initialization and a rejected save.
+The Checkpoint 3, Stage 1 run on November 17, 2026 passed all 50 tests with both
+isolated database tests enabled and none skipped.
+
 ## JWT verification middleware
 
-`src/middleware/auth.middleware.js` exports `authenticate`. For future protected
-routes it runs before the controller. It is deliberately not mounted on any
-production route in Checkpoint 2, Stage 3.
+`src/middleware/auth.middleware.js` exports `authenticate`. In Checkpoint 3,
+Stage 2, `src/routes/problem.routes.js` applies `router.use(authenticate)` before
+all five route declarations, their validators, and their controllers. Health,
+registration, and login are mounted separately and remain public. The controllers
+and services enforce ownership after authentication succeeds.
 
 1. Read `Authorization: Bearer <token>` (case-insensitive scheme; one credential).
 2. Verify with the decoded configured secret and `algorithms: ["HS256"]`, the
@@ -164,8 +213,18 @@ Middleware tests cover all required rejection cases, missing claims, invalid
 subjects, HS384 and unsigned tokens, future `nbf`, safe identity fields, and
 generic infrastructure failures. The isolated database test authenticates a
 real login token, deletes that account, and checks the same token returns 401.
+The isolated registration integration test also checks missing/invalid tokens on
+all five Problem routes before Problem database calls, successful CRUD through the
+existing controllers with a login token, and public health/register/login access.
+The Checkpoint 3, Stage 2 run on November 18, 2026 passed all 54 tests with isolated
+MongoDB enabled and none skipped.
+`tests/problem-authorization.integration.test.js` registers and logs in two users,
+checks cross-user and ownerless denials, ignores spoofed CREATE/UPDATE ownership,
+and verifies owner-scoped filters, search, every supported sort, pagination, and counts.
+The Checkpoint 3, Stage 3 run on November 18, 2026 passed all 62 tests with all three
+isolated MongoDB integration fixtures enabled and none skipped.
 See [manual Postman testing](../docs/api.md#manual-postman-testing-for-jwt-middleware)
-for a local-only probe without changing production routes.
+for requests against the authenticated Problem API.
 
 Login normalizes the email, retrieves the account's hidden password hash only
 for verification, and checks the password with `bcrypt.compare()`. Success

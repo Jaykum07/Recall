@@ -15,6 +15,7 @@ import mongoose from "mongoose";
 import request from "supertest";
 import app from "../src/app.js";
 import User from "../src/models/user.model.js";
+import Problem from "../src/models/problem.model.js";
 import { authenticate } from "../src/middleware/auth.middleware.js";
 import { errorMiddleware } from "../src/middleware/error.middleware.js";
 
@@ -117,6 +118,86 @@ test("registration persists safely and enforces unique email in isolated MongoDB
   assert.equal(await User.countDocuments(), 2);
   assert.deepEqual(await mongoose.connection.db.collection("problems").findOne({ _id: legacyId }), legacyBefore);
   assert.equal(await mongoose.connection.db.collection("problems").countDocuments(), 1);
+
+  const denied = { success: false, message: "Authentication required", errors: null };
+  // The earlier persistence check reconnects, so use the current MongoDB client.
+  const currentProblems = mongoose.connection.db.collection("problems");
+  // Invalid IDs, filters, and bodies also prove authentication precedes validators/controllers.
+  const problemRequests = [
+    ["post", "/api/problems"],
+    ["get", "/api/problems?limit=invalid"],
+    ["get", "/api/problems/invalid-id"],
+    ["patch", "/api/problems/invalid-id"],
+    ["delete", "/api/problems/invalid-id"],
+  ];
+
+  for (const [label, token] of [["missing", null], ["invalid", "not-a-jwt"]]) {
+    await t.test(`${label} token returns 401 for every Problem route before database access`, async (routeTest) => {
+      const operations = ["create", "aggregate", "countDocuments", "findOne", "findOneAndUpdate", "findOneAndDelete"];
+      const queries = operations.map((operation) => routeTest.mock.method(Problem, operation, () => {
+        throw new Error("Unauthenticated requests must not access Problem data");
+      }));
+      for (const [method, url] of problemRequests) {
+        let pending = request(app)[method](url);
+        if (token) pending = pending.set("Authorization", `Bearer ${token}`);
+        if (method === "post" || method === "patch") pending = pending.send({});
+        const response = await pending;
+        assert.equal(response.status, 401, `${method.toUpperCase()} ${url}`);
+        assert.deepEqual(response.body, denied);
+      }
+      for (const query of queries) assert.equal(query.mock.callCount(), 0);
+      assert.deepEqual(await currentProblems.findOne({ _id: legacyId }), legacyBefore);
+      assert.equal(await currentProblems.countDocuments(), 1);
+    });
+  }
+
+  await t.test("valid login token reaches every existing Problem controller", async () => {
+    const authorization = `Bearer ${login.body.data.accessToken}`;
+    const created = await request(app).post("/api/problems").set("Authorization", authorization).send({
+      problemInfo: {
+        problemName: "Authenticated Two Sum", problemUrl: "https://leetcode.com/problems/two-sum/",
+        platform: "leetcode", difficulty: "easy",
+      },
+      userLearningInfo: { firstSolvedAt: "2026-11-18T00:00:00Z", lastSolvedAt: "2026-11-18T00:00:00Z" },
+    });
+    assert.equal(created.status, 201);
+    assert.equal(created.body.message, "problem created");
+    assert.equal(created.body.data.userId, accountId);
+    const problemId = created.body.data._id;
+    assert.ok(await Problem.findById(problemId));
+
+    const listed = await request(app).get("/api/problems").set("Authorization", authorization);
+    assert.equal(listed.status, 200);
+    assert.equal(listed.body.message, "problems fetched");
+    assert.ok(listed.body.data.problems.some((problem) => problem._id === problemId));
+
+    const fetched = await request(app).get(`/api/problems/${problemId}`).set("Authorization", authorization);
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.body.data._id, problemId);
+
+    const updated = await request(app).patch(`/api/problems/${problemId}`).set("Authorization", authorization)
+      .send({ userLearningInfo: { confidence: 4 } });
+    assert.equal(updated.status, 200);
+    assert.equal(updated.body.data.userLearningInfo.confidence, 4);
+    assert.equal((await Problem.findById(problemId)).userLearningInfo.confidence, 4);
+
+    const deleted = await request(app).delete(`/api/problems/${problemId}`).set("Authorization", authorization);
+    assert.equal(deleted.status, 200);
+    assert.equal(deleted.body.data._id, problemId);
+    assert.equal(await Problem.findById(problemId), null);
+    assert.deepEqual(await currentProblems.findOne({ _id: legacyId }), legacyBefore);
+  });
+
+  await t.test("health, registration, and login remain public without tokens", async () => {
+    assert.equal((await request(app).get("/api/health")).status, 200);
+    const registered = await request(app).post("/api/auth/register")
+      .send({ ...input, email: "public-auth@example.com" });
+    assert.equal(registered.status, 201);
+    const publicLogin = await request(app).post("/api/auth/login")
+      .send({ email: "public-auth@example.com", password: input.password });
+    assert.equal(publicLogin.status, 200);
+    assert.equal(typeof publicLogin.body.data.accessToken, "string");
+  });
 
   const authProbe = express();
   authProbe.get("/probe", authenticate, (req, res) => res.json({ user: req.user }));

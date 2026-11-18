@@ -1,4 +1,5 @@
 import express from "express";
+import { authenticate } from "../middleware/auth.middleware.js";
 import {
   createProblemController,
   deleteProblemController,
@@ -12,6 +13,8 @@ import {
 } from "../validators/problem.validator.js";
 
 const router = express.Router();
+
+router.use(authenticate);
 
 router.post("/", createProblemController);
 router.get("/", validateProblemFilters, getProblemsController);
