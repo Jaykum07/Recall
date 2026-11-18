@@ -4,13 +4,13 @@ const updateProblemSchema = z.object({
   userLearningInfo: z
     .object({
       confidence: z.number().min(0).max(5).optional(),
-      whatILearned: z.string().optional(),
-      whatIStruggledWith: z.string().optional(),
-      mistake: z.string().optional(),
+      whatILearned: z.string().max(1000).optional(),
+      whatIStruggledWith: z.string().max(1000).optional(),
+      mistake: z.string().max(1000).optional(),
     })
     .strict()
     .refine((data) => Object.keys(data).length > 0),
-});
+}).strict();
 
 const problemFilterSchema = z
   .object({
@@ -52,6 +52,7 @@ export const validateUpdateProblem = (req, res, next) => {
     return next(err);
   }
 
+  req.validatedBody = result.data;
   next();
 };
 

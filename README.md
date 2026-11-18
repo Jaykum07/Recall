@@ -18,7 +18,7 @@ to revisit problems, remember mistakes, and plan revisions.
 | Private problems for each user | Authenticated ownership enforced across all Problem APIs |
 | Problem management | Backend APIs exist; editing is incomplete |
 | Search, filters, sorting, and pagination | Backend code exists; database results still need verification |
-| Learning notes and mistakes | Fields exist; editing needs fixing |
+| Learning fields and mistakes | PATCH persists confidence, whatILearned, whatIStruggledWith, and mistake |
 | Revision tracking, goals, streaks, and dashboard | Planned |
 | Frontend | Basic React page only |
 
@@ -110,6 +110,14 @@ to the services. Lists, filters, searches, sorting, pagination, and counts are
 owner-scoped. GET, UPDATE, and DELETE query both the problem ID and owner ID;
 another user's or an ownerless problem returns 404. Frontend authentication is pending.
 Existing problems without an owner have not been changed.
+
+Phase 1 backend stabilization fixes PATCH learning-field persistence. It accepts
+one or more supported learning fields, preserves omitted values, and allows
+confidence `0` and empty text. Text fields are limited to 1,000 characters.
+Unknown top-level/nested keys, including `notes` and body-supplied `userId`, are
+rejected with 400 before any update query. Ownership remains enforced atomically.
+The Phase 1 PATCH run passed all 66 backend tests with isolated MongoDB enabled
+and none skipped; the targeted integration run passed all 17 tests.
 
 The Problem schema now requires `userId`, a MongoDB ObjectId referencing `User`,
 with a non-unique ascending index for user-based queries. No default owner or

@@ -147,9 +147,11 @@ export const updateProblemService = async (id, data, userId) => {
     }
 
     const updatedData = {};
-    if (data.userLearningInfo?.confidence !== undefined) {
-      updatedData["userLearningInfo.confidence"] =
-        data.userLearningInfo.confidence;
+    const supportedFields = ["confidence", "whatILearned", "whatIStruggledWith", "mistake"];
+    for (const field of supportedFields) {
+      if (data.userLearningInfo?.[field] !== undefined) {
+        updatedData[`userLearningInfo.${field}`] = data.userLearningInfo[field];
+      }
     }
 
     if (Object.keys(updatedData).length === 0) {

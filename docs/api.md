@@ -196,8 +196,9 @@ the referenced account to exist. Multiple problems may reference the same user.
 
 Checkpoint 3, Stage 3 enforces ownership after authentication. Controllers pass
 `req.user.id` separately from request data. CREATE sets `userId` from that trusted
-identity, ignoring ownership fields and `_id` in the body. UPDATE permits only
-the existing confidence change and cannot modify `userId`.
+identity, ignoring ownership fields and `_id` in the body. UPDATE accepts only
+the supported learning fields and rejects body-supplied ownership fields; it
+cannot modify `userId`.
 
 LIST begins with `{ userId: ObjectId(req.user.id) }` in its aggregation `$match`
 and uses the same filter for counts. Search, filters, sorting, pagination, and
@@ -373,29 +374,54 @@ Possible errors: **400** for an invalid ID; **404** if absent, owned by another 
 or ownerless; **500** for an
 unexpected failure.
 
-## Update confidence
+## Update learning fields
 
 **PATCH `/api/problems/:id`**
 
 Authentication: Bearer access token required. Send `Content-Type: application/json`.
 
-Required body for a working update:
+Send at least one supported field inside `userLearningInfo`. Fields can be updated
+independently or together:
 
 ```json
 {
   "userLearningInfo": {
-    "confidence": 4
+    "confidence": 4,
+    "whatILearned": "Use a map to find the complement.",
+    "whatIStruggledWith": "Recognizing the invariant.",
+    "mistake": "Forgot to check the empty input."
   }
 }
 ```
 
-Confidence must be a number from 0 to 5. Other learning fields pass validation
-but are currently ignored by the service. Sending only notes or mistakes
-returns 400. Problem metadata cannot be edited yet.
-Top-level ownership fields are ignored when a supported confidence change is
-present; ownership-only payloads return 400. Nested unknown learning fields fail
-validation. `userId` is never included in the update. Updates match both the
-problem ID and authenticated owner in one database operation.
+| Field | Accepted value |
+| --- | --- |
+| `confidence` | Number from 0 to 5, inclusive |
+| `whatILearned` | String of at most 1,000 characters |
+| `whatIStruggledWith` | String of at most 1,000 characters |
+| `mistake` | String of at most 1,000 characters |
+
+Only supplied fields are changed; omitted learning fields, solved dates, metadata,
+and ownership remain unchanged. `0` is a valid confidence, and `""` clears a text
+field. Text is not trimmed. Nulls and incorrect types are rejected.
+
+Both the top-level body and `userLearningInfo` are strict. Empty updates,
+unsupported keys such as `notes`, solved dates, metadata, update operators, and
+ownership fields such as `userId` return 400, even alongside valid learning fields.
+Unlike CREATE, PATCH rejects body-supplied ownership fields rather than ignoring
+them. Validation failures never reach the update query and do not write any
+Problem data. Property names are case-sensitive.
+
+The controller passes validated input and the authenticated owner ID to the
+service. It builds a dotted-field `$set` from the four-field allowlist and retains
+one atomic `findOneAndUpdate` using `{ _id: id, userId }`, with Mongoose validators
+enabled. Another user's, ownerless, or missing problem returns 404 for a valid
+update body. There is no ownership assignment or migration.
+
+Phase 1 verification: all 17 targeted integration tests and all 66 backend tests
+passed with isolated MongoDB enabled and none skipped. The invalid-body checks
+assert that the update query is never called and stored Problem records,
+including timestamps, remain unchanged.
 
 Response: **200 OK** (problem fields abbreviated):
 
@@ -405,7 +431,12 @@ Response: **200 OK** (problem fields abbreviated):
   "message": "update succesfully",
   "data": {
     "_id": "<problem-id>",
-    "userLearningInfo": { "confidence": 4 }
+    "userLearningInfo": {
+      "confidence": 4,
+      "whatILearned": "Use a map to find the complement.",
+      "whatIStruggledWith": "Recognizing the invariant.",
+      "mistake": "Forgot to check the empty input."
+    }
   }
 }
 ```
@@ -534,8 +565,9 @@ from the repository root with `npm run server`. No temporary probe server is nee
    it and GET/PATCH/DELETE by that ID return 404. For PATCH use a valid confidence body.
 7. As User B, POST a problem with User A's `userId` in the body: expect 201 with
    User B's ID in the response. As User A, PATCH its own problem with a valid
-   confidence change plus User B's `userId`: expect 200 with ownership still set
-   to User A. Repeat searches/filters and paginated lists using both tokens;
+   learning-field change plus User B's `userId`: expect 400 with the problem
+   completely unchanged. Remove `userId` and resend: expect 200 with ownership
+   still set to User A. Repeat searches/filters and paginated lists using both tokens;
    each account's records and totals must remain separate.
 
 | Case | How to test | Expected |

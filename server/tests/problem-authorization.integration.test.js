@@ -126,7 +126,7 @@ test("Problem APIs enforce ownership for two authenticated users in isolated Mon
       let foreign = send(b, method, `/api/problems/${primary._id}`);
       let missing = send(b, method, `/api/problems/${missingId}`);
       if (method === "patch") {
-        foreign = foreign.send({ userId: b.id, userLearningInfo: { confidence: 5 } });
+        foreign = foreign.send({ userLearningInfo: { confidence: 5 } });
         missing = missing.send({ userLearningInfo: { confidence: 5 } });
       }
       const response = await foreign;
@@ -143,7 +143,6 @@ test("Problem APIs enforce ownership for two authenticated users in isolated Mon
     assert.equal(fetched.status, 200);
     assert.equal(fetched.body.data._id, primary._id);
     const updated = await send(a, "patch", `/api/problems/${primary._id}`).send({
-      userId: b.id, ownerId: b.id, $set: { userId: b.id },
       userLearningInfo: { confidence: 4 },
     });
     assert.equal(updated.status, 200);
@@ -152,6 +151,100 @@ test("Problem APIs enforce ownership for two authenticated users in isolated Mon
     assert.equal((await Problem.findById(primary._id)).userId.toString(), a.id);
     const ownershipOnly = await send(a, "patch", `/api/problems/${primary._id}`).send({ userId: b.id });
     assert.equal(ownershipOnly.status, 400);
+  });
+
+  await t.test("each supported PATCH field persists independently and omitted fields remain unchanged", async () => {
+    for (const [field, value] of [
+      ["confidence", 0],
+      ["whatILearned", "  Preserve this learning text exactly.  "],
+      ["whatIStruggledWith", "Recognizing the invariant"],
+      ["mistake", "Forgot the empty input case"],
+    ]) {
+      const before = await collection.findOne({ _id: new mongoose.Types.ObjectId(primary._id) });
+      const response = await send(a, "patch", `/api/problems/${primary._id}`)
+        .send({ userLearningInfo: { [field]: value } });
+      assert.equal(response.status, 200, field);
+      assert.equal(response.body.data.userLearningInfo[field], value);
+      const after = await collection.findOne({ _id: before._id });
+      // Apart from the automatic update timestamp, only the supplied field changes.
+      assert.deepEqual({ ...after, updatedAt: before.updatedAt }, {
+        ...before, userLearningInfo: { ...before.userLearningInfo, [field]: value },
+      });
+      const fetched = await send(a, "get", `/api/problems/${primary._id}`);
+      assert.equal(fetched.status, 200);
+      assert.equal(fetched.body.data.userLearningInfo[field], value);
+    }
+  });
+
+  await t.test("combined PATCH accepts 1000-character text, confidence boundaries, and empty strings", async () => {
+    for (const updates of [
+      { confidence: 5, whatILearned: "a".repeat(1000), whatIStruggledWith: "b".repeat(1000), mistake: "c".repeat(1000) },
+      { confidence: 0, whatILearned: "", whatIStruggledWith: "", mistake: "" },
+    ]) {
+      const before = await collection.findOne({ _id: new mongoose.Types.ObjectId(primary._id) });
+      const response = await send(a, "patch", `/api/problems/${primary._id}`).send({ userLearningInfo: updates });
+      assert.equal(response.status, 200);
+      for (const [field, value] of Object.entries(updates)) {
+        assert.equal(response.body.data.userLearningInfo[field], value);
+      }
+      const after = await collection.findOne({ _id: before._id });
+      assert.deepEqual({ ...after, updatedAt: before.updatedAt }, {
+        ...before, userLearningInfo: { ...before.userLearningInfo, ...updates },
+      });
+    }
+    // Keep the original confidence used by the subsequent sorting regression checks.
+    assert.equal((await send(a, "patch", `/api/problems/${primary._id}`)
+      .send({ userLearningInfo: { confidence: 4 } })).status, 200);
+  });
+
+  await t.test("invalid PATCH bodies are rejected before the update query and cause no database writes", async (patchTest) => {
+    const update = patchTest.mock.method(Problem, "findOneAndUpdate", () => {
+      throw new Error("Invalid requests must not reach the update operation");
+    });
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    const invalidBodies = [
+      {}, [], { userLearningInfo: {} }, { userLearningInfo: null },
+      { userLearningInfo: [] }, { userLearningInfo: "invalid" },
+      { userId: b.id },
+      ...["userId", "ownerId", "user", "_id", "problemInfo", "notes", "$set", "userLearningInfo.confidence"]
+        .map((field) => ({ userLearningInfo: { confidence: 2 }, [field]: field === "$set" ? { userId: b.id } : b.id })),
+      ...["notes", "firstSolvedAt", "lastSolvedAt", "userId", "$set"]
+        .map((field) => ({ userLearningInfo: { confidence: 2, [field]: "unsupported" } })),
+      ...[-1, 6, "4", null, true, [], {}].map((confidence) => ({ userLearningInfo: { confidence } })),
+      ...["whatILearned", "whatIStruggledWith", "mistake"].flatMap((field) =>
+        [null, 123, false, [], {}, "x".repeat(1001)].map((value) => ({
+          userLearningInfo: { confidence: 2, [field]: value },
+        }))),
+    ];
+    for (const body of invalidBodies) {
+      const response = await send(a, "patch", `/api/problems/${primary._id}`).send(body);
+      assert.equal(response.status, 400, JSON.stringify(body));
+      assert.equal(response.body.message, "Validation failed");
+      assert.ok(Array.isArray(response.body.errors));
+      assert.equal(update.mock.callCount(), 0);
+      assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+    }
+  });
+
+  await t.test("another user cannot PATCH any learning field and denied updates change no records", async () => {
+    const before = await collection.find({}).sort({ _id: 1 }).toArray();
+    const missingId = new mongoose.Types.ObjectId().toString();
+    for (const updates of [
+      { confidence: 0 }, { whatILearned: "spoofed learning" },
+      { whatIStruggledWith: "spoofed struggle" }, { mistake: "spoofed mistake" },
+      { confidence: 5, whatILearned: "", whatIStruggledWith: "", mistake: "" },
+    ]) {
+      const response = await send(b, "patch", `/api/problems/${primary._id}`).send({ userLearningInfo: updates });
+      const missing = await send(b, "patch", `/api/problems/${missingId}`).send({ userLearningInfo: updates });
+      assert.equal(response.status, 404);
+      assert.equal(missing.status, 404);
+      assert.deepEqual(response.body, missing.body);
+      assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
+    }
+    const spoofedOwner = await send(b, "patch", `/api/problems/${primary._id}`)
+      .send({ userId: a.id, userLearningInfo: { whatILearned: "spoofed owner" } });
+    assert.equal(spoofedOwner.status, 400);
+    assert.deepEqual(await collection.find({}).sort({ _id: 1 }).toArray(), before);
   });
 
   await t.test("search, filters, every sort, pagination, and counts stay user-scoped", async () => {
@@ -205,7 +298,7 @@ test("Problem APIs enforce ownership for two authenticated users in isolated Mon
       assert.equal(listed.body.data.pagination.totalProblems, 0);
       assert.equal((await send(user, "get", `/api/problems/${legacyId}`)).status, 404);
       assert.equal((await send(user, "patch", `/api/problems/${legacyId}`)
-        .send({ userId: user.id, userLearningInfo: { confidence: 5 } })).status, 404);
+        .send({ userLearningInfo: { confidence: 5, whatILearned: "cannot claim", whatIStruggledWith: "", mistake: "" } })).status, 404);
       assert.equal((await send(user, "delete", `/api/problems/${legacyId}`)).status, 404);
     }
     assert.deepEqual(await collection.findOne({ _id: legacyId }), legacyBefore);

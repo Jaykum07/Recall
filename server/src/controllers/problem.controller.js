@@ -47,7 +47,7 @@ export const getProblemController = async (req, res, next) => {
 
 export const updateProblemController = async (req, res, next) => {
   try {
-    const data = await updateProblemService(req.params.id, req.body, req.user.id);
+    const data = await updateProblemService(req.params.id, req.validatedBody, req.user.id);
     res.status(200).json({
       success: true,
       message: "update succesfully",

@@ -83,7 +83,7 @@ Restart the server after changing `.env`.
 | POST | `/api/problems` | Add a problem |
 | GET | `/api/problems` | List, search, filter, sort, and paginate problems |
 | GET | `/api/problems/:id` | Get one problem |
-| PATCH | `/api/problems/:id` | Update confidence only |
+| PATCH | `/api/problems/:id` | Update confidence and the three supported learning-text fields |
 | DELETE | `/api/problems/:id` | Delete a problem |
 
 Every Problem endpoint requires `Authorization: Bearer <accessToken>`. Health,
@@ -173,8 +173,13 @@ Checkpoint 3, Stage 3 enforces ownership in the controllers and services:
   pagination; aggregation and `countDocuments` share that filter.
 - GET, UPDATE, and DELETE use `{ _id: id, userId }`. Writes are scoped in the
   database operation itself. Missing, other-user, and ownerless records return 404.
-- UPDATE builds only a confidence `$set`; ownership fields cannot change ownership.
-  An ownership-only request has no supported update and returns 400.
+- UPDATE builds a dotted-field `$set` only for supplied `confidence`, `whatILearned`,
+  `whatIStruggledWith`, and `mistake`. The validator enforces confidence 0–5 and a
+  1,000-character limit on each text field. Omitted fields remain unchanged; `0`
+  and empty strings are valid. Both body levels are strict: unsupported fields,
+  including ownership fields and `notes`, return 400 before the update query.
+  The controller passes `req.validatedBody`; the owner-scoped atomic write and
+  Mongoose validators are retained. Unlike CREATE, PATCH rejects ownership fields.
 
 Ownerless records stay in MongoDB without assignment or migration and are excluded
 from every user's API access and counts. The schema's `ref` alone is not an access
@@ -219,10 +224,17 @@ existing controllers with a login token, and public health/register/login access
 The Checkpoint 3, Stage 2 run on November 18, 2026 passed all 54 tests with isolated
 MongoDB enabled and none skipped.
 `tests/problem-authorization.integration.test.js` registers and logs in two users,
-checks cross-user and ownerless denials, ignores spoofed CREATE/UPDATE ownership,
+checks cross-user and ownerless denials, ignores spoofed CREATE ownership,
+rejects spoofed PATCH ownership,
 and verifies owner-scoped filters, search, every supported sort, pagination, and counts.
 The Checkpoint 3, Stage 3 run on November 18, 2026 passed all 62 tests with all three
 isolated MongoDB integration fixtures enabled and none skipped.
+PATCH tests also cover each supported field independently, combined updates,
+omitted-field preservation, empty text, confidence boundaries, 1,000-character
+limits, invalid values and unsupported fields. Invalid bodies never reach the
+update operation, and database snapshots confirm no Problem records change.
+The Phase 1 PATCH verification passed all 17 targeted integration tests and all
+66 backend tests with isolated MongoDB enabled and none skipped.
 See [manual Postman testing](../docs/api.md#manual-postman-testing-for-jwt-middleware)
 for requests against the authenticated Problem API.
 
